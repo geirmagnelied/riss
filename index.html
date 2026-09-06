@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Riss — skisseverktøy</title>
+<meta name="description" content="Vektorbasert skisseverktøy for ingeniørar og arkitektar">
+<meta name="theme-color" content="#fbfaf7">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Riss">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 :root{
@@ -167,6 +172,26 @@ body{display:flex;flex-direction:column}
 #mode-hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:rgba(20,24,29,.88);color:#fff;padding:7px 16px;border-radius:20px;font-size:12px;z-index:16;display:none;align-items:center;gap:8px;box-shadow:var(--shadow);pointer-events:none}
 #mode-hint.show{display:flex}
 #mode-hint kbd{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.16);padding:1px 6px;border-radius:3px;font-size:10px}
+
+/* ── SKJERMBILETE CROP-MODAL ── */
+#crop-modal{position:fixed;inset:0;background:rgba(10,10,14,.85);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:200;backdrop-filter:blur(3px)}
+#crop-modal.show{display:flex}
+#crop-header{color:#fff;font-size:13px;margin-bottom:12px;display:flex;align-items:center;gap:16px;font-family:'Inter',sans-serif}
+#crop-header kbd{background:rgba(255,255,255,.18);padding:2px 8px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px}
+#crop-wrap{position:relative;cursor:crosshair;box-shadow:0 8px 40px rgba(0,0,0,.5);max-width:90vw;max-height:80vh}
+#crop-img{display:block;max-width:90vw;max-height:80vh;object-fit:contain}
+#crop-rect{position:absolute;border:2px solid #0891b2;background:rgba(8,145,178,.12);pointer-events:none;display:none}
+#crop-actions{margin-top:14px;display:flex;gap:10px}
+.crop-btn{padding:9px 22px;border-radius:8px;border:none;font-family:'Inter',sans-serif;font-size:13px;font-weight:500;cursor:pointer}
+.crop-btn.primary{background:#0891b2;color:#fff}
+.crop-btn.primary:hover{opacity:.9}
+.crop-btn.ghost{background:rgba(255,255,255,.12);color:#fff}
+.crop-btn.ghost:hover{background:rgba(255,255,255,.2)}
+
+/* ── ETIKETT-INPUT ── */
+#label-input-wrap{position:absolute;display:none;z-index:30;background:var(--surface);border:1.5px solid var(--accent);border-radius:8px;padding:6px 10px;box-shadow:var(--shadow);min-width:120px}
+#label-input-wrap input{border:none;outline:none;font-family:'Inter',sans-serif;font-size:13px;color:var(--ink);background:transparent;width:160px}
+#label-input-wrap .lbl-hint{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--text3);margin-top:3px}
 .cs-more{position:relative}
 #color-picker{position:fixed;display:none;flex-direction:column;gap:14px;width:280px;background:var(--surface);border:1px solid var(--border2);border-radius:18px;box-shadow:var(--shadow-lg);padding:18px;z-index:120}
 #color-picker.show{display:flex}
@@ -228,6 +253,7 @@ body{display:flex;flex-direction:column}
 </div>
 <div class="topbar-spacer"></div>
 <button class="tb-action" onclick="openImport()"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0L5 7m3 3l3-3M2.5 11v2a1 1 0 001 1h9a1 1 0 001-1v-2"/></svg>Importer underlag</button>
+<button class="tb-action" onclick="startScreenCapture()"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="14" height="10" rx="1.5"/><circle cx="8" cy="8" r="2"/><path d="M5 3V1.5M11 3V1.5"/></svg>Skjermbilde</button>
 <button class="tb-action" onclick="startCalibration()"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h12M2 5v6M14 5v6"/></svg>Kalibrer</button>
 <div class="topbar-divider"></div>
 <button class="tb-action" onclick="exportSVG()"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5.5 9.5l2-2 1.5 1.5 2-2.5"/></svg>Eksporter</button>
@@ -246,6 +272,7 @@ body{display:flex;flex-direction:column}
 <div class="tool-sep"></div>
 <button class="tool" data-tool="dim" onclick="setTool('dim')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="8" x2="4" y2="16"/><line x1="20" y1="8" x2="20" y2="16"/></svg><span class="kbd">D</span><span class="tip">Målsetjing <kbd>D</kbd></span></button>
 <button class="tool" data-tool="text" onclick="setTool('text')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 5h14M12 5v14"/></svg><span class="kbd">T</span><span class="tip">Tekst <kbd>T</kbd></span></button>
+<button class="tool" data-tool="label" onclick="setTool('label')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="12" r="2" fill="currentColor" stroke="none"/><path d="M7 12l5-4"/><path d="M12 8h6"/><line x1="12" y1="8" x2="12" y2="8.01"/></svg><span class="kbd">K</span><span class="tip">Etikett/leader <kbd>K</kbd></span></button>
 <button class="tool" data-tool="fill" onclick="setTool('fill')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 13l7-7 6 6-7 7a1.5 1.5 0 01-2 0l-4-4a1.5 1.5 0 010-2z"/><path d="M11 6l2-2 6 6-2 2"/><circle cx="18" cy="16" r="2.3" fill="currentColor" stroke="none" opacity="0.85"/></svg><span class="kbd">F</span><span class="tip">Fyll (malingsspann) <kbd>F</kbd></span></button>
 
 <div class="tool-sep"></div>
@@ -383,6 +410,28 @@ body{display:flex;flex-direction:column}
     <button class="cp-add" onclick="cpAddSaved()" title="Lagre farge">+</button>
   </div>
   <div class="cp-saved" id="cpSaved"></div>
+</div>
+
+<!-- SKJERMBILETE CROP-MODAL -->
+<div id="crop-modal">
+  <div id="crop-header">
+    <span>Dra for å velje utsnitt</span>
+    <kbd>Enter</kbd> bruk utsnitt &nbsp; <kbd>Esc</kbd> avbryt
+  </div>
+  <div id="crop-wrap">
+    <img id="crop-img" alt="Skjermbilete">
+    <div id="crop-rect"></div>
+  </div>
+  <div id="crop-actions">
+    <button class="crop-btn ghost" onclick="closeCropModal()">Avbryt</button>
+    <button class="crop-btn primary" onclick="applyCrop()">Bruk utsnitt</button>
+  </div>
+</div>
+
+<!-- ETIKETT-INPUT -->
+<div id="label-input-wrap">
+  <input id="label-input" type="text" placeholder="Etikettekst…" autocomplete="off">
+  <div class="lbl-hint">Enter = ferdig · Esc = avbryt</div>
 </div>
 
 <div id="toast"></div>
@@ -577,6 +626,7 @@ function drawElement(c,el,isPreview){
     }
   }
   else if(el.type==='wall'){ drawWall(c,el,isPreview); }
+  else if(el.type==='label'){ drawLabel(c,el,isPreview); }
   else if(el.type==='pen'){
     if(el.pts.length<2){c.restore();return;}
     c.beginPath(); const p0=w2s(el.pts[0].x,el.pts[0].y); c.moveTo(p0.x,p0.y);
@@ -931,6 +981,7 @@ function renderOverlay(){
 
   // dimension staging preview
   if(tool==='dim'&&dimStage>0) drawDimPreview();
+  if(tool==='label') drawLabelPreview();
 
   // calibration
   if(calibrating&&calibP1){
@@ -1038,6 +1089,7 @@ function bbox(el){
   if(['line','rect','ellipse','arrow','dim'].includes(el.type)) return {minx:Math.min(el.x1,el.x2),miny:Math.min(el.y1,el.y2),maxx:Math.max(el.x1,el.x2),maxy:Math.max(el.y1,el.y2)};
   if(['poly','fill','pen','polyline'].includes(el.type)){let a=1e15,b=1e15,c=-1e15,d=-1e15;for(const p of el.pts){a=Math.min(a,p.x);b=Math.min(b,p.y);c=Math.max(c,p.x);d=Math.max(d,p.y);}return{minx:a,miny:b,maxx:c,maxy:d};}
   if(el.type==='wall'){let a=1e15,b=1e15,c=-1e15,d=-1e15;const pad=(el.thickness||150)/2+Math.abs(el.refOffset||0);for(const p of el.pts){a=Math.min(a,p.x-pad);b=Math.min(b,p.y-pad);c=Math.max(c,p.x+pad);d=Math.max(d,p.y+pad);}return{minx:a,miny:b,maxx:c,maxy:d};}
+  if(el.type==='label') return{minx:Math.min(el.p1.x,el.p2.x,el.p3.x,el.haleEnd.x),miny:Math.min(el.p1.y,el.p2.y,el.p3.y,el.haleEnd.y)-el.sizeMm*3,maxx:Math.max(el.p1.x,el.p2.x,el.p3.x,el.haleEnd.x)+40,maxy:Math.max(el.p1.y,el.p2.y,el.p3.y,el.haleEnd.y)+4};
   if(el.type==='text') return {minx:el.x,miny:el.y-(el.size||16),maxx:el.x+el.text.length*(el.size||16)*.55,maxy:el.y};
   return null;
 }
@@ -1266,6 +1318,7 @@ host.addEventListener('pointerdown',e=>{
   if(tool==='pen'){ penDrawing=true;penPoints=[wp];host.setPointerCapture(e.pointerId);return; }
 
   if(tool==='fill'){ doFloodFillAt(wp); return; }
+  if(tool==='label'){ handleLabelClick(wp); renderOverlay(); return; }
 
   if(tool==='poly'){
     if(polyPoints.length>0){const f=polyPoints[0];const fs=w2s(f.x,f.y);if(Math.hypot(fs.x-sp.x,fs.y-sp.y)<12&&polyPoints.length>=3){finishPoly();return;}}
@@ -1584,6 +1637,13 @@ function translate(el,orig,dx,dy){
     if(orig.segs) el.segs=orig.segs.map(s=>s.type==='arc'?{type:'arc',bulge:{x:s.bulge.x+dx,y:s.bulge.y+dy}}:{type:'straight'});
     return;
   }
+  if(orig.type==='label'){
+    el.p1={x:orig.p1.x+dx,y:orig.p1.y+dy};
+    el.p2={x:orig.p2.x+dx,y:orig.p2.y+dy};
+    el.p3={x:orig.p3.x+dx,y:orig.p3.y+dy};
+    el.haleEnd={x:orig.haleEnd.x+dx,y:orig.haleEnd.y+dy};
+    return;
+  }
   if(orig.x1!==undefined){el.x1=orig.x1+dx;el.y1=orig.y1+dy;el.x2=orig.x2+dx;el.y2=orig.y2+dy;}
   if(orig.x!==undefined&&orig.type==='text'){el.x=orig.x+dx;el.y=orig.y+dy;}
   if(orig.pts&&orig.type!=='polyline'&&orig.type!=='wall')el.pts=orig.pts.map(p=>({x:p.x+dx,y:p.y+dy}));
@@ -1619,6 +1679,11 @@ function hitTest(sp){
       }
       if(hit)return el;
     }
+    else if(el.type==='label'){
+      if(distSeg(sp,w2s(el.p1.x,el.p1.y),w2s(el.p2.x,el.p2.y))<tol) return el;
+      if(distSeg(sp,w2s(el.p2.x,el.p2.y),w2s(el.p3.x,el.p3.y))<tol) return el;
+      if(distSeg(sp,w2s(el.p3.x,el.p3.y),w2s(el.haleEnd.x,el.haleEnd.y))<tol) return el;
+    }
     else if(el.type==='text'){const p=w2s(el.x,el.y);if(sp.x>=p.x-tol&&sp.x<=p.x+el.text.length*9&&sp.y>=p.y-18&&sp.y<=p.y+tol)return el;}
   }
   return null;
@@ -1640,6 +1705,7 @@ function setTool(t){
   if((tool==='poly')&&polyPoints.length>=2)finishPoly();
   commitPolyline();
   commitWall();
+  cancelLabel();
   polyPoints=[];stage=0;p1=null;dimStage=0;dimP1=dimP2=null;offsetMode=false;guideLines=[];inferGuides=[];hideReadout();setModeHint('');hidePetPalette();
   tool=t;
   document.querySelectorAll('.tool').forEach(b=>b.classList.toggle('active',b.dataset.tool===t));
@@ -1647,6 +1713,7 @@ function setTool(t){
   host.style.cursor=t==='select'?'default':t==='text'?'text':'crosshair';
   document.getElementById('wallControls').style.display=t==='wall'?'flex':'none';
   document.getElementById('wallDivider1').style.display=t==='wall'?'block':'none';
+  if(t==='label') setModeHint('Klikk festepunktet på objektet · <kbd>Esc</kbd> avbryt');
   updateProps();
   render();
 }
@@ -1927,10 +1994,10 @@ window.addEventListener('keydown',e=>{
   }
   if(e.code==='Space'){spaceDown=true;host.style.cursor='grab';e.preventDefault();return;}
   if(e.ctrlKey||e.metaKey){if(e.key==='d'){e.preventDefault();if(selection.size)duplicateSelection();}else if(e.key==='z'){showToast('Angre kjem snart');}return;}
-  const map={v:'select',l:'line',r:'rect',p:'poly',b:'pen',d:'dim',t:'text',f:'fill',o:'ellipse',a:'arrow',w:'wall'};
+  const map={v:'select',l:'line',r:'rect',p:'poly',b:'pen',d:'dim',t:'text',f:'fill',o:'ellipse',a:'arrow',w:'wall',k:'label'};
   if(map[e.key.toLowerCase()]){setTool(map[e.key.toLowerCase()]);return;}
   if(e.key==='Delete'||e.key==='Backspace'){if(selection.size)deleteSelection();return;}
-  if(e.key==='Escape'){ commitPolyline(); commitWall(); polyPoints=[];stage=0;p1=null;dimStage=0;dimP1=dimP2=null;offsetMode=false;selection.clear();guideLines=[];inferGuides=[];setModeHint('');hideReadout();updateProps();render(); }
+  if(e.key==='Escape'){ commitPolyline(); commitWall(); cancelLabel(); polyPoints=[];stage=0;p1=null;dimStage=0;dimP1=dimP2=null;offsetMode=false;selection.clear();guideLines=[];inferGuides=[];setModeHint('');hideReadout();updateProps();render(); }
   if(e.key==='Enter'&&(tool==='poly')&&polyPoints.length>=2)finishPoly();
 });
 window.addEventListener('keyup',e=>{if(e.code==='Space'){spaceDown=false;host.style.cursor=tool==='select'?'default':'crosshair';}});
@@ -2041,6 +2108,234 @@ document.getElementById('railWidthStack').addEventListener('click',e=>{
   document.querySelectorAll('.rail-w').forEach(x=>x.classList.toggle('active',x===b));
   if(selection.size){ elements.forEach(el=>{ if(selection.has(el.id)&&el.width!==undefined) el.width=curWidth; }); render(); }
 });
+
+// ═══════════════════ SKJERMBILETE (to-stegs: vel skjerm → beskriv utsnitt) ═══════════════════
+let cropFullImg=null, cropDragging=false, cropStart=null, cropCurrent=null;
+
+async function startScreenCapture(){
+  if(!navigator.mediaDevices?.getDisplayMedia){ showToast('Nettlesaren støttar ikkje skjermopptak — bruk Chrome/Edge'); return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({ video:{cursor:'always'}, audio:false });
+  } catch(e){ showToast('Skjermopptak avbrote'); return; }
+  try {
+    const video=document.createElement('video'); video.srcObject=stream; video.muted=true;
+    await new Promise(res=>{video.onloadedmetadata=()=>video.play().then(res);});
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    const off=document.createElement('canvas'); off.width=video.videoWidth; off.height=video.videoHeight;
+    off.getContext('2d').drawImage(video,0,0);
+    stream.getTracks().forEach(t=>t.stop()); video.srcObject=null;
+    // Opne crop-modalen med det fanga bildet
+    const img=document.getElementById('crop-img');
+    img.onload=()=>openCropModal();
+    img.src=off.toDataURL('image/png');
+  } catch(e){ if(stream)stream.getTracks().forEach(t=>t.stop()); showToast('Kunne ikkje lese skjermbilete: '+e.message); }
+}
+
+function openCropModal(){
+  cropDragging=false; cropStart=cropCurrent=null;
+  document.getElementById('crop-rect').style.display='none';
+  document.getElementById('crop-modal').classList.add('show');
+}
+function closeCropModal(){ document.getElementById('crop-modal').classList.remove('show'); }
+
+// Drag-logikk på crop-wrap
+(function(){
+  const wrap=()=>document.getElementById('crop-wrap');
+  const rect=()=>document.getElementById('crop-rect');
+  const img=()=>document.getElementById('crop-img');
+
+  document.addEventListener('pointerdown',e=>{
+    const w=wrap(); if(!w.contains(e.target)||!document.getElementById('crop-modal').classList.contains('show'))return;
+    e.preventDefault();
+    const r=img().getBoundingClientRect();
+    cropStart={x:e.clientX-r.left,y:e.clientY-r.top};
+    cropCurrent={...cropStart}; cropDragging=true; w.setPointerCapture(e.pointerId);
+    rect().style.display='block'; updateCropRect();
+  });
+  document.addEventListener('pointermove',e=>{
+    if(!cropDragging)return;
+    const r=img().getBoundingClientRect();
+    cropCurrent={x:Math.max(0,Math.min(e.clientX-r.left,r.width)),y:Math.max(0,Math.min(e.clientY-r.top,r.height))};
+    updateCropRect();
+  });
+  document.addEventListener('pointerup',e=>{ if(cropDragging)cropDragging=false; });
+})();
+
+function updateCropRect(){
+  if(!cropStart||!cropCurrent)return;
+  const r=document.getElementById('crop-rect');
+  const x=Math.min(cropStart.x,cropCurrent.x), y=Math.min(cropStart.y,cropCurrent.y);
+  const w=Math.abs(cropCurrent.x-cropStart.x), h=Math.abs(cropCurrent.y-cropStart.y);
+  r.style.left=x+'px'; r.style.top=y+'px'; r.style.width=w+'px'; r.style.height=h+'px';
+}
+
+function applyCrop(){
+  const imgEl=document.getElementById('crop-img');
+  const r=imgEl.getBoundingClientRect();
+  const scaleX=imgEl.naturalWidth/r.width, scaleY=imgEl.naturalHeight/r.height;
+  let x=0,y=0,w=imgEl.naturalWidth,h=imgEl.naturalHeight;
+  if(cropStart&&cropCurrent&&Math.abs(cropCurrent.x-cropStart.x)>10&&Math.abs(cropCurrent.y-cropStart.y)>10){
+    x=Math.min(cropStart.x,cropCurrent.x)*scaleX; y=Math.min(cropStart.y,cropCurrent.y)*scaleY;
+    w=Math.abs(cropCurrent.x-cropStart.x)*scaleX; h=Math.abs(cropCurrent.y-cropStart.y)*scaleY;
+  }
+  const off=document.createElement('canvas'); off.width=w; off.height=h;
+  const ctx2=off.getContext('2d');
+  const src=new Image(); src.src=imgEl.src;
+  src.onload=()=>{
+    ctx2.drawImage(src,x,y,w,h,0,0,w,h);
+    const result=new Image();
+    result.onload=()=>{
+      const mmPerPx=10; const uw=result.width*mmPerPx, uh=result.height*mmPerPx;
+      const center=s2w(CW/2,CH/2);
+      underlay={img:result,x:center.x-uw/2,y:center.y-uh/2,w:uw,h:uh,opacity:.6};
+      closeCropModal(); zoomFit(); showToast('Utsnitt lagt inn som underlag — kalibrer for målestokk');
+    };
+    result.src=off.toDataURL('image/png');
+  };
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&document.getElementById('crop-modal').classList.contains('show')){ closeCropModal(); e.stopPropagation(); }
+  if(e.key==='Enter'&&document.getElementById('crop-modal').classList.contains('show')){ applyCrop(); e.stopPropagation(); }
+},{capture:true});
+
+// ═══════════════════ ETIKETT-VERKTØY (3-klikks leader med horisontal hale) ═══════════════════
+// Steg 0: klikk peikepunkt (festepunkt på objektet)
+// Steg 1: klikk knekkpunkt (set retning på leiar-linja)
+// Steg 2: klikk tekstplassering (siste biten blir alltid horisontal)
+// → tekstfelt dukkar opp ved tekstplasseringa
+let labelStage=0, labelP1=null, labelP2=null, labelP3=null;
+const LABEL_TAIL_MM=8;     // lengd på horisontal hale i mm
+const LABEL_SIZE_MM=2.5;   // standard tekststorleik i mm
+
+function labelFontPx(){ return Math.max(8, LABEL_SIZE_MM * view.zoom * (scaleRatio/100) * 10); }
+
+function handleLabelClick(wp){
+  if(labelStage===0){
+    labelP1=wp; labelStage=1;
+    setModeHint('Klikk knekkpunkt — set retning på leiarstreken');
+  } else if(labelStage===1){
+    labelP2=wp; labelStage=2;
+    setModeHint('Klikk for å plassere teksten');
+  } else if(labelStage===2){
+    labelP3=wp; labelStage=3;
+    openLabelInput(wp);
+  }
+}
+
+function openLabelInput(wp){
+  const s=w2s(wp.x,wp.y);
+  const wrap=document.getElementById('label-input-wrap');
+  const inp=document.getElementById('label-input');
+  wrap.style.left=(s.x+6)+'px'; wrap.style.top=(s.y-28)+'px';
+  wrap.style.display='block';
+  inp.style.fontSize=Math.max(11,labelFontPx())+'px';
+  inp.value='';
+  // Liten delay so pointerup frå klikk 3 ikkje straks triggrar blur
+  setTimeout(()=>inp.focus(), 60);
+
+  inp.onkeydown=ev=>{
+    if(ev.key==='Enter'){ commitLabel(inp.value.trim()); ev.preventDefault(); ev.stopPropagation(); }
+    if(ev.key==='Escape'){ cancelLabel(); ev.stopPropagation(); }
+  };
+  // Blur commitar berre dersom det faktisk er tekst, og etter ein liten delay
+  // slik at klikk på andre canvas-element ikkje trigger ein tom commit
+  inp.onblur=()=>setTimeout(()=>{
+    if(labelStage===3&&inp.value.trim()) commitLabel(inp.value.trim());
+    else if(labelStage===3) cancelLabel();
+  },150);
+}
+
+function commitLabel(text){
+  document.getElementById('label-input-wrap').style.display='none';
+  if(text&&labelP1&&labelP2&&labelP3){
+    // Determine which side the text is on to know hale direction
+    const dx=labelP3.x-labelP2.x;
+    const haleDir=dx>=0?1:-1;
+    const haleEnd={x:labelP3.x+haleDir*LABEL_TAIL_MM,y:labelP3.y};
+    elements.push({
+      id:uid(), type:'label',
+      p1:{x:labelP1.x,y:labelP1.y},   // festepunkt
+      p2:{x:labelP2.x,y:labelP2.y},   // knekkpunkt
+      p3:{x:labelP3.x,y:labelP3.y},   // tekststart
+      haleEnd,                          // ende av horisontal hale
+      haleDir,
+      text, sizeMm:LABEL_SIZE_MM,
+      color:curColor
+    });
+    render();
+  }
+  labelStage=0; labelP1=labelP2=labelP3=null;
+  setModeHint('Klikk festepunktet på objektet · <kbd>Esc</kbd> avbryt');
+}
+
+function cancelLabel(){
+  document.getElementById('label-input-wrap').style.display='none';
+  labelStage=0; labelP1=labelP2=labelP3=null; setModeHint('');
+}
+
+// ─── Tegn etikett-element ───
+function drawLabel(c,el,isPreview){
+  c.save();
+  c.strokeStyle=el.color; c.fillStyle=el.color;
+  c.lineWidth=Math.max(.7,0.8*Math.min(view.zoom*1.8,1.8));
+  c.lineCap='round'; c.lineJoin='round';
+  if(isPreview) c.globalAlpha=.7;
+
+  const p1=w2s(el.p1.x,el.p1.y), p2=w2s(el.p2.x,el.p2.y),
+        p3=w2s(el.p3.x,el.p3.y), he=w2s(el.haleEnd.x,el.haleEnd.y);
+
+  // Festepunkt-sirkel
+  c.beginPath(); c.arc(p1.x,p1.y,3.5,0,7); c.fill();
+
+  // Leiar-strek: festepunkt → knekkpunkt → tekststart
+  c.beginPath(); c.moveTo(p1.x,p1.y); c.lineTo(p2.x,p2.y); c.lineTo(p3.x,p3.y); c.stroke();
+
+  // Horisontal hale
+  c.beginPath(); c.moveTo(p3.x,p3.y); c.lineTo(he.x,he.y); c.stroke();
+
+  // Tekst
+  const fontPx=Math.max(8, el.sizeMm*view.zoom*(scaleRatio/100)*10);
+  c.font=`500 ${fontPx}px 'Inter',sans-serif`;
+  const tw=c.measureText(el.text).width;
+  const tx=el.haleDir>=0 ? p3.x : p3.x - tw;
+  c.fillText(el.text, tx, p3.y - fontPx*0.25);
+  c.restore();
+}
+
+// ─── Overlay-preview for etikett under teikning ───
+function drawLabelPreview(){
+  if(labelStage===0||!labelP1) return;
+  octx.save();
+  octx.strokeStyle=curColor; octx.fillStyle=curColor;
+  octx.lineWidth=1.5; octx.lineCap='round'; octx.setLineDash([5,4]);
+  const p1=w2s(labelP1.x,labelP1.y);
+  octx.beginPath(); octx.arc(p1.x,p1.y,3.5,0,7); octx.fill(); octx.setLineDash([]);
+  if(labelStage>=1&&labelP2&&cursorWorld){
+    const p2=w2s(labelP2.x,labelP2.y), pc=w2s(cursorWorld.x,cursorWorld.y);
+    octx.setLineDash([5,4]);
+    octx.beginPath(); octx.moveTo(p1.x,p1.y); octx.lineTo(p2.x,p2.y); octx.stroke();
+    if(labelStage===2){
+      // vis horisontal hale-preview
+      const dx=cursorWorld.x-labelP2.x, haleDir=dx>=0?1:-1;
+      const haleEndW={x:cursorWorld.x+haleDir*LABEL_TAIL_MM,y:cursorWorld.y};
+      const he=w2s(haleEndW.x,haleEndW.y);
+      octx.beginPath(); octx.moveTo(p2.x,p2.y); octx.lineTo(pc.x,pc.y); octx.lineTo(he.x,he.y); octx.stroke();
+      octx.setLineDash([]);
+      octx.font=`500 ${Math.max(8,LABEL_SIZE_MM*view.zoom*(scaleRatio/100)*10)}px 'Inter',sans-serif`;
+      octx.fillStyle='rgba(90,90,90,.5)';
+      octx.fillText('tekst…', dx>=0?pc.x:pc.x-60, pc.y-4);
+    } else {
+      octx.beginPath(); octx.moveTo(p2.x,p2.y); octx.lineTo(pc.x,pc.y); octx.stroke();
+    }
+  } else if(labelStage===1&&cursorWorld){
+    const pc=w2s(cursorWorld.x,cursorWorld.y);
+    octx.setLineDash([5,4]);
+    octx.beginPath(); octx.moveTo(p1.x,p1.y); octx.lineTo(pc.x,pc.y); octx.stroke();
+  }
+  octx.setLineDash([]); octx.restore();
+}
 
 // ═══════════════════ INIT ═══════════════════
 document.getElementById('scaleSelect').addEventListener('change',e=>{scaleRatio=parseInt(e.target.value);render();});
