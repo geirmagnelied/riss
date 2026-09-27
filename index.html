@@ -78,6 +78,21 @@ body{display:flex;flex-direction:column}
 #numeric-chip{position:absolute;pointer-events:auto;display:none;background:var(--surface);border:1.5px solid var(--accent);border-radius:7px;padding:6px 8px;z-index:25;box-shadow:var(--shadow);align-items:center;gap:6px}
 #numeric-chip input{width:74px;border:none;outline:none;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink);background:transparent}
 #numeric-chip .unit{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text3)}
+
+/* ─── START-SIDE (svart-kvitt, mellombels — endeleg design kjem seinare) ─── */
+#startScreen{position:fixed;inset:0;z-index:100;background:var(--paper);display:flex;align-items:center;justify-content:center}
+.start-card{width:340px;max-width:88vw;text-align:center;display:flex;flex-direction:column;align-items:center;gap:26px}
+.start-brand{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:42px;letter-spacing:-.02em;color:var(--ink)}
+.start-brand::after{content:'·';color:var(--ink)}
+.start-tag{font-family:'Inter',sans-serif;font-size:14px;color:var(--text2);line-height:1.5;margin-top:-14px}
+.start-actions{display:flex;flex-direction:column;gap:10px;width:100%}
+.start-btn{height:46px;border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:.12s;width:100%}
+.start-btn.primary{background:var(--ink);color:#fff;border:1px solid var(--ink)}
+.start-btn.primary:hover{background:var(--ink2)}
+.start-btn.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--border2)}
+.start-btn.ghost:hover{background:var(--surface2)}
+.start-note{font-family:'Inter',sans-serif;font-size:12px;color:var(--text3);line-height:1.5;max-width:280px}
+body.pre-start #topbar, body.pre-start #workspace{display:none}
 #statusbar{height:34px;background:var(--surface);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 14px;gap:14px;flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);z-index:20}
 .status-item{display:flex;align-items:center;gap:6px}
 .status-item .label{color:var(--text3)}
@@ -222,7 +237,18 @@ body{display:flex;flex-direction:column}
 .cp-saved .sv:hover{transform:scale(1.18)}
 </style>
 </head>
-<body>
+<body class="pre-start">
+<div id="startScreen">
+  <div class="start-card">
+    <div class="start-brand">Riss</div>
+    <div class="start-tag">Vektorbasert skisseverktøy for arkitektar og ingeniørar</div>
+    <div class="start-actions">
+      <button class="start-btn primary" onclick="enterApp()">Bruk utan innlogging</button>
+      <button class="start-btn ghost" onclick="showLoginNotice()">Logg inn</button>
+    </div>
+    <div class="start-note" id="startNote" style="display:none">Innlogging og lagra prosjekt kjem i neste steg — bruk appen utan konto for no.</div>
+  </div>
+</div>
 <div id="topbar">
 <div class="brand"><span class="brand-mark">Riss</span><span class="brand-sub">skisse</span></div>
 <div class="topbar-divider"></div>
@@ -2676,6 +2702,19 @@ function drawLabelPreview(){
   octx.setLineDash([]); octx.restore();
 }
 
+// ═══════════════════ START-SIDE ═══════════════════
+// Mellombels innlogging-/prosjektfront — sjå CLAUDE.md for status og planlagde neste steg
+// (ekte innlogging + lagra prosjekt via ein backend). "Bruk utan innlogging" gir same
+// gjeste-åtferd som appen alt hadde (ingen lagring, alt i minnet for denne økta).
+function enterApp(){
+  document.body.classList.remove('pre-start');
+  document.getElementById('startScreen').style.display='none';
+  resizeCanvases();
+  view.zoom=0.4; view.panX=CW/2; view.panY=CH/2; updateZoom(); render();
+  showToast('Riss v2 — klikk for start, klikk for slutt. Høgreklikk eit element for meny.');
+}
+function showLoginNotice(){ document.getElementById('startNote').style.display='block'; }
+
 // ═══════════════════ INIT ═══════════════════
 document.getElementById('scaleSelect').addEventListener('change',e=>{scaleRatio=parseInt(e.target.value);render();});
 window.addEventListener('resize',resizeCanvases);
@@ -2683,7 +2722,6 @@ resizeCanvases();
 view.zoom=0.4;view.panX=CW/2;view.panY=CH/2;updateZoom();render();
 document.getElementById('railFgSwatch').style.background=curColor;
 document.getElementById('railBgSwatch').style.background=fillColor;
-showToast('Riss v2 — klikk for start, klikk for slutt. Høgreklikk eit element for meny.');
 
 </script>
 </body>

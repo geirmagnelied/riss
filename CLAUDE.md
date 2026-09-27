@@ -13,6 +13,32 @@ arkitektkontor.
 - Live nettside: `https://riss.liedarkitektur.no` (Vercel, alias for
   `riss-nu.vercel.app`, auto-deploy ved push til `main`)
 - Lokal mappe: `C:\Users\gemli\Jottacloud\Lied Lab\Web\Riss`
+- Lokal statisk dev-server for testing: `preview_start` med namn
+  `riss-static` (definert i `LiedLab/.claude/launch.json`, sidan
+  Claude Code-sesjonen sitt arbeidsrotpunkt er `LiedLab`, ikkje `Riss` —
+  peikar på `../Riss` og køyrer `npx http-server` på port 5588).
+
+## Start-side (lagt til 28. sept. 2026 — **mellombels, svart-kvitt design**)
+
+`index.html` opnar no på ei enkel start-side (`#startScreen`, styrt av
+`body.pre-start`-klassen) før sjølve skisseverktøyet vert synleg:
+
+- **"Bruk utan innlogging"** → `enterApp()`: fjernar `pre-start`, skjuler
+  `#startScreen`, køyrer `resizeCanvases()`+`render()` på nytt (canvasen er
+  `display:none` og difor 0×0 px medan start-sida vises — VIKTIG at
+  storleiken vert rekna på nytt når han blir synleg, elles vert
+  `CW`/`CH` verande 0 og heile koordinatsystemet brotne). Gir i dag
+  nøyaktig same (gjeste-)åtferd som appen alltid har hatt.
+- **"Logg inn"** → viser berre eit `startNote`-varsel ("kjem i neste
+  steg") — det finst enno ingen ekte autentisering eller backend.
+- Geir Magne har sagt han kjem tilbake med eigne tankar om det visuelle
+  designet — noverande utsjånad (svart/kvit/grå, ingen aksentfarge) er
+  eit **minimalt, mellombels** utgangspunkt, ikkje eit endeleg design.
+- **Neste store steg** (uttrykt som viktig av Geir Magne, ikkje bygd
+  enno): ekte prosjektomgrep — brukar skal kunne opprette/opne prosjekt og
+  lagre teikningar/modellar for seinare redigering. Krev ein backend
+  (Supabase er nærliggande, sidan det alt er i bruk i LiedLab-prosjektet)
+  — ingen slik integrasjon finst i Riss enno.
 
 ## Mappestruktur / filer
 
