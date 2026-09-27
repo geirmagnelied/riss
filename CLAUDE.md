@@ -80,6 +80,24 @@ lag-/låse-mekanisme enno).
   interne world-koordinatsystem er Y-ned (som skjerm-px) — difor vert Y
   snudd ved import (`placeImportedGeometry()` i `index.html`), elles hadde
   importen kome opp-ned.
+- **Koordinatsystem på tvers av fleire importar** (lagt til 27. sept. 2026,
+  same dag): den globale `geoRef`-variabelen held eit felles verkeleg-verd
+  referansepunkt (KOORDSYS-kode + eit meter-punkt i det systemet + kvar det
+  hamnar i Riss-world-mm), sett av den *fyrste* geo-eigna importen i økta —
+  anten ei SOSI-fil (som alltid har KOORDSYS frå `.HODE`), eller ein DXF med
+  usannsynleg store koordinatar (>50 000 m frå 0, heuristikk for "truleg
+  alt UTM-absolutte koordinatar"). Alle seinare geo-eigna importar i same
+  økt vert plasserte *relativt til `geoRef`*, ikkje sentrerte uavhengig —
+  slik hamnar t.d. ei tomtegrense-SOSI og ei bygnings-SOSI frå same
+  eigedom rett i høve til kvarandre, ikkje kvar for seg midt i synsfeltet.
+  Ein liten "REF"-indikator nedst i statuslinja (`#geoRefStatus`) syner
+  aktiv KOORDSYS-kode og lokalt nullpunkt (hover for full presisjon).
+  Ulik KOORDSYS-kode mellom importar gir eit tydeleg åtvaringstoast i
+  staden for å feilplassere stille. **NB**: `geoRef` er berre i minnet for
+  økta (appen har ikkje noka lagre/last-funksjon for prosjekt enno, so alt
+  forsvinn ved sideoppdatering), og manuell "Kalibrer" i etterkant vil
+  gjere `geoRef`-registreringa ugyldig (kalibrering skalerer/flyttar
+  elementa fritt, utanom geoRef sin rekneskap).
 - Målestokk er sjeldan 100 % sikker (DXF utan `$INSUNITS`, eller SOSI med
   uvanleg `ENHET`) — appen sin eksisterande "Kalibrer"-funksjon verkar
   uendra som manuell rettar-mekanisme etterpå, akkurat som for
