@@ -9,6 +9,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Riss">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 :root{
@@ -93,6 +94,17 @@ body{display:flex;flex-direction:column}
 .start-btn.ghost:hover{background:var(--surface2)}
 .start-note{font-family:'Inter',sans-serif;font-size:12px;color:var(--text3);line-height:1.5;max-width:280px}
 body.pre-start #topbar, body.pre-start #workspace{display:none}
+.start-card input{width:100%;height:42px;border:1px solid var(--border2);border-radius:var(--radius);padding:0 12px;font-family:'Inter',sans-serif;font-size:14px;color:var(--ink);outline:none;background:var(--surface)}
+.start-card input:focus{border-color:var(--ink)}
+.start-field{width:100%;text-align:left}
+.start-field label{display:block;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:6px}
+.start-error{font-family:'Inter',sans-serif;font-size:12px;color:#b91c1c;line-height:1.5;max-width:280px}
+.start-link{background:none;border:none;font-family:'Inter',sans-serif;font-size:12px;color:var(--text2);text-decoration:underline;cursor:pointer;padding:2px}
+.project-list{width:100%;max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;text-align:left}
+.project-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);cursor:pointer;transition:.12s}
+.project-row:hover{background:var(--surface2);border-color:var(--border2)}
+.project-row .pr-name{font-family:'Inter',sans-serif;font-size:14px;font-weight:600;color:var(--ink)}
+.project-row .pr-meta{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text3)}
 #statusbar{height:34px;background:var(--surface);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 14px;gap:14px;flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);z-index:20}
 .status-item{display:flex;align-items:center;gap:6px}
 .status-item .label{color:var(--text3)}
@@ -240,13 +252,39 @@ body.pre-start #topbar, body.pre-start #workspace{display:none}
 <body class="pre-start">
 <div id="startScreen">
   <div class="start-card">
-    <div class="start-brand">Riss</div>
-    <div class="start-tag">Vektorbasert skisseverktøy for arkitektar og ingeniørar</div>
-    <div class="start-actions">
-      <button class="start-btn primary" onclick="enterApp()">Bruk utan innlogging</button>
-      <button class="start-btn ghost" onclick="showLoginNotice()">Logg inn</button>
+
+    <div id="startView-landing">
+      <div class="start-brand">Riss</div>
+      <div class="start-tag">Vektorbasert skisseverktøy for arkitektar og ingeniørar</div>
+      <div class="start-actions" style="margin-top:26px">
+        <button class="start-btn primary" onclick="enterApp()">Bruk utan innlogging</button>
+        <button class="start-btn ghost" onclick="showStartView('auth')">Logg inn</button>
+      </div>
     </div>
-    <div class="start-note" id="startNote" style="display:none">Innlogging og lagra prosjekt kjem i neste steg — bruk appen utan konto for no.</div>
+
+    <div id="startView-auth" style="display:none">
+      <div class="start-brand" style="font-size:26px">Logg inn</div>
+      <div class="start-actions" style="margin-top:20px">
+        <div class="start-field"><label>E-post</label><input id="authEmail" type="email" autocomplete="username"></div>
+        <div class="start-field"><label>Passord</label><input id="authPassword" type="password" autocomplete="current-password"></div>
+        <button class="start-btn primary" id="authSubmitBtn" onclick="doAuthSubmit()">Logg inn</button>
+        <button class="start-btn ghost" onclick="showStartView('landing')">Tilbake</button>
+      </div>
+      <div class="start-error" id="authError" style="display:none;margin-top:14px"></div>
+      <div class="start-note" id="authNote" style="display:none;margin-top:14px"></div>
+      <button class="start-link" id="authToggleMode" style="margin-top:16px" onclick="toggleAuthMode()">Har du ingen konto? Registrer deg</button>
+    </div>
+
+    <div id="startView-projects" style="display:none">
+      <div class="start-brand" style="font-size:26px">Prosjekt</div>
+      <div class="start-tag" id="projectsUserLabel" style="margin-top:-6px"></div>
+      <div class="start-actions" style="margin-top:20px">
+        <div class="project-list" id="projectList"></div>
+        <button class="start-btn ghost" onclick="createProjectPrompt()">+ Nytt prosjekt</button>
+      </div>
+      <button class="start-link" style="margin-top:16px" onclick="doLogout()">Logg ut</button>
+    </div>
+
   </div>
 </div>
 <div id="topbar">
@@ -278,6 +316,9 @@ body.pre-start #topbar, body.pre-start #workspace{display:none}
 <span style="color:var(--text3);font-size:11px">mm</span>
 </div>
 <div class="topbar-spacer"></div>
+<button class="tb-action" id="projectBtn" style="display:none" onclick="backToProjects()" title="Bytt prosjekt"></button>
+<button class="tb-action" id="saveBtn" style="display:none" onclick="saveDrawing()"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 2h9l3 3v9H2z"/><path d="M4 2v4h6V2M4 14v-4h8v4"/></svg>Lagre</button>
+<div class="topbar-divider" id="projectDivider" style="display:none"></div>
 <button class="tb-action" onclick="openImport()"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0L5 7m3 3l3-3M2.5 11v2a1 1 0 001 1h9a1 1 0 001-1v-2"/></svg>Importer underlag</button>
 <button class="tb-action" onclick="startScreenCapture()"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="14" height="10" rx="1.5"/><circle cx="8" cy="8" r="2"/><path d="M5 3V1.5M11 3V1.5"/></svg>Skjermbilde</button>
 <button class="tb-action" onclick="startCalibration()"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h12M2 5v6M14 5v6"/></svg>Kalibrer</button>
@@ -2702,18 +2743,148 @@ function drawLabelPreview(){
   octx.setLineDash([]); octx.restore();
 }
 
-// ═══════════════════ START-SIDE ═══════════════════
-// Mellombels innlogging-/prosjektfront — sjå CLAUDE.md for status og planlagde neste steg
-// (ekte innlogging + lagra prosjekt via ein backend). "Bruk utan innlogging" gir same
-// gjeste-åtferd som appen alt hadde (ingen lagring, alt i minnet for denne økta).
-function enterApp(){
+// ═══════════════════ START-SIDE / INNLOGGING / PROSJEKT ═══════════════════
+// Deler Supabase-prosjektet ("Lied Lab", hcdtagtkyewhrbrvrbqh) og
+// `public.projects`-tabellen med notatappen (LiedLab) — same konto, same
+// prosjektliste, ingen import naudsynt. Riss sine eigne teikningar/modellar
+// vert lagra i `public.riss_drawings` (project_id → projects.id), sjå
+// CLAUDE.md for skjema og grunngjeving. "Bruk utan innlogging" gir framleis
+// same gjeste-åtferd som før (ingen lagring, alt i minnet for denne økta).
+const SUPABASE_URL='https://hcdtagtkyewhrbrvrbqh.supabase.co';
+const SUPABASE_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjZHRhZ3RreWV3aHJicnZyYnFoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA2ODk0MDksImV4cCI6MjA5NjI2NTQwOX0.1Kg8MnI-ffWa5Ecc54BT_wP_mnftH9B1ZPIOoGaADfM';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON);
+
+let currentUser=null, currentProject=null, currentDrawingId=null;
+let authMode='login';
+
+function enterAppUI(){
   document.body.classList.remove('pre-start');
   document.getElementById('startScreen').style.display='none';
   resizeCanvases();
   view.zoom=0.4; view.panX=CW/2; view.panY=CH/2; updateZoom(); render();
+}
+// "Bruk utan innlogging" — reint gjeste-modus, ingen prosjekt/lagring.
+function enterApp(){
+  currentUser=null; currentProject=null; currentDrawingId=null;
+  document.getElementById('projectBtn').style.display='none';
+  document.getElementById('saveBtn').style.display='none';
+  document.getElementById('projectDivider').style.display='none';
+  enterAppUI();
   showToast('Riss v2 — klikk for start, klikk for slutt. Høgreklikk eit element for meny.');
 }
-function showLoginNotice(){ document.getElementById('startNote').style.display='block'; }
+
+function showStartView(name){
+  ['landing','auth','projects'].forEach(v=>{ document.getElementById('startView-'+v).style.display=(v===name)?'':'none'; });
+  document.getElementById('authError').style.display='none';
+  document.getElementById('authNote').style.display='none';
+}
+function toggleAuthMode(){
+  authMode = authMode==='login' ? 'signup' : 'login';
+  document.querySelector('#startView-auth .start-brand').textContent = authMode==='login' ? 'Logg inn' : 'Registrer deg';
+  document.getElementById('authSubmitBtn').textContent = authMode==='login' ? 'Logg inn' : 'Registrer deg';
+  document.getElementById('authToggleMode').textContent = authMode==='login' ? 'Har du ingen konto? Registrer deg' : 'Har du alt ein konto? Logg inn';
+  document.getElementById('authError').style.display='none';
+  document.getElementById('authNote').style.display='none';
+}
+async function doAuthSubmit(){
+  const email=document.getElementById('authEmail').value.trim();
+  const password=document.getElementById('authPassword').value;
+  const errEl=document.getElementById('authError'), noteEl=document.getElementById('authNote');
+  errEl.style.display='none'; noteEl.style.display='none';
+  if(!email||!password){ errEl.textContent='Fyll ut e-post og passord.'; errEl.style.display='block'; return; }
+  if(authMode==='login'){
+    const {data,error}=await sb.auth.signInWithPassword({email,password});
+    if(error){ errEl.textContent=error.message; errEl.style.display='block'; return; }
+    await afterLogin(data.session.user);
+  } else {
+    const {data,error}=await sb.auth.signUp({email,password});
+    if(error){ errEl.textContent=error.message; errEl.style.display='block'; return; }
+    if(data.session){ await afterLogin(data.session.user); }
+    else {
+      noteEl.textContent='Sjekk e-posten din for stadfestingslenke, og logg inn deretter.';
+      noteEl.style.display='block';
+      authMode='signup'; toggleAuthMode(); // vipp attende til login-modus/tekst
+    }
+  }
+}
+async function afterLogin(user){
+  currentUser=user;
+  document.getElementById('projectsUserLabel').textContent=user.email;
+  showStartView('projects');
+  await loadProjectList();
+}
+async function doLogout(){
+  await sb.auth.signOut();
+  currentUser=null; currentProject=null; currentDrawingId=null;
+  showStartView('landing');
+}
+async function loadProjectList(){
+  const listEl=document.getElementById('projectList');
+  listEl.textContent='Lastar…';
+  const {data,error}=await sb.from('projects').select('id,name,project_number,project_status').is('deleted_at',null).order('created_at',{ascending:false});
+  if(error){ listEl.textContent='Feil: '+error.message; return; }
+  if(!data.length){ listEl.textContent='Ingen prosjekt enno.'; return; }
+  listEl.innerHTML='';
+  for(const p of data){
+    const row=document.createElement('div'); row.className='project-row';
+    row.onclick=()=>openProject(p.id, p.name||('Prosjekt '+p.id));
+    const nameEl=document.createElement('div'); nameEl.className='pr-name'; nameEl.textContent=p.name||('Prosjekt '+p.id);
+    const metaEl=document.createElement('div'); metaEl.className='pr-meta'; metaEl.textContent=[p.project_number,p.project_status].filter(Boolean).join(' · ');
+    row.appendChild(nameEl); row.appendChild(metaEl); listEl.appendChild(row);
+  }
+}
+async function createProjectPrompt(){
+  const name=prompt('Namn på nytt prosjekt:');
+  if(!name) return;
+  const {data,error}=await sb.from('projects').insert({id:Date.now(),user_id:currentUser.id,name,type:'work',project_status:'tilbod'}).select('id,name').single();
+  if(error){ showToast('Klarte ikkje å opprette prosjekt: '+error.message); return; }
+  openProject(data.id,data.name);
+}
+async function openProject(id,name){
+  currentProject={id,name}; currentDrawingId=null;
+  elements=[]; selection.clear(); geoRef=null;
+  const {data,error}=await sb.from('riss_drawings').select('id,data').eq('project_id',id).eq('user_id',currentUser.id).limit(1).maybeSingle();
+  if(error){ showToast('Klarte ikkje å laste teikning: '+error.message); }
+  else if(data){
+    currentDrawingId=data.id;
+    const d=data.data||{};
+    elements=d.elements||[]; geoRef=d.geoRef||null;
+    if(d.view) Object.assign(view,d.view);
+    if(d.scaleRatio) scaleRatio=d.scaleRatio;
+  }
+  document.getElementById('projectBtn').textContent=name;
+  document.getElementById('projectBtn').style.display='';
+  document.getElementById('saveBtn').style.display='';
+  document.getElementById('projectDivider').style.display='';
+  enterAppUI();
+  updateGeoRefUI();
+  const sel=document.getElementById('scaleSelect'); if(sel) sel.value=String(scaleRatio);
+  showToast('Opna prosjekt: '+name);
+}
+function backToProjects(){
+  document.body.classList.add('pre-start');
+  document.getElementById('startScreen').style.display='';
+  showStartView('projects');
+  loadProjectList();
+}
+async function saveDrawing(){
+  if(!currentUser||!currentProject){ showToast('Ikkje noko prosjekt ope å lagre til'); return; }
+  const payload={elements, geoRef, view:{panX:view.panX,panY:view.panY,zoom:view.zoom}, scaleRatio};
+  if(currentDrawingId){
+    const {error}=await sb.from('riss_drawings').update({data:payload,updated_at:new Date().toISOString()}).eq('id',currentDrawingId);
+    if(error){ showToast('Lagring feila: '+error.message); return; }
+  } else {
+    const {data,error}=await sb.from('riss_drawings').insert({user_id:currentUser.id,project_id:currentProject.id,name:currentProject.name,data:payload}).select('id').single();
+    if(error){ showToast('Lagring feila: '+error.message); return; }
+    currentDrawingId=data.id;
+  }
+  showToast('Lagra til '+currentProject.name);
+}
+// Alt innlogga frå før (supabase-js hugsar økta i localStorage) — hopp rett til prosjektveljar.
+(async function checkExistingSession(){
+  const {data}=await sb.auth.getSession();
+  if(data.session) await afterLogin(data.session.user);
+})();
 
 // ═══════════════════ INIT ═══════════════════
 document.getElementById('scaleSelect').addEventListener('change',e=>{scaleRatio=parseInt(e.target.value);render();});

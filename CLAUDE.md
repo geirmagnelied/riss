@@ -18,27 +18,69 @@ arkitektkontor.
   Claude Code-sesjonen sitt arbeidsrotpunkt er `LiedLab`, ikkje `Riss` —
   peikar på `../Riss` og køyrer `npx http-server` på port 5588).
 
-## Start-side (lagt til 28. sept. 2026 — **mellombels, svart-kvitt design**)
+## Start-side, innlogging og prosjekt (lagt til 28. sept. 2026)
 
-`index.html` opnar no på ei enkel start-side (`#startScreen`, styrt av
-`body.pre-start`-klassen) før sjølve skisseverktøyet vert synleg:
+`index.html` opnar på ei start-side (`#startScreen`, styrt av
+`body.pre-start`-klassen) før sjølve skisseverktøyet vert synleg. Tre
+del-visingar (`#startView-landing/auth/projects`, vist/skjult via
+`showStartView(name)`):
 
-- **"Bruk utan innlogging"** → `enterApp()`: fjernar `pre-start`, skjuler
-  `#startScreen`, køyrer `resizeCanvases()`+`render()` på nytt (canvasen er
-  `display:none` og difor 0×0 px medan start-sida vises — VIKTIG at
-  storleiken vert rekna på nytt når han blir synleg, elles vert
-  `CW`/`CH` verande 0 og heile koordinatsystemet brotne). Gir i dag
-  nøyaktig same (gjeste-)åtferd som appen alltid har hatt.
-- **"Logg inn"** → viser berre eit `startNote`-varsel ("kjem i neste
-  steg") — det finst enno ingen ekte autentisering eller backend.
-- Geir Magne har sagt han kjem tilbake med eigne tankar om det visuelle
-  designet — noverande utsjånad (svart/kvit/grå, ingen aksentfarge) er
-  eit **minimalt, mellombels** utgangspunkt, ikkje eit endeleg design.
-- **Neste store steg** (uttrykt som viktig av Geir Magne, ikkje bygd
-  enno): ekte prosjektomgrep — brukar skal kunne opprette/opne prosjekt og
-  lagre teikningar/modellar for seinare redigering. Krev ein backend
-  (Supabase er nærliggande, sidan det alt er i bruk i LiedLab-prosjektet)
-  — ingen slik integrasjon finst i Riss enno.
+1. **Landing**: "Bruk utan innlogging" → `enterApp()` (reint gjeste-modus,
+   ingen prosjekt/lagring — nøyaktig same åtferd som appen alltid har
+   hatt), eller "Logg inn" → auth-visinga.
+2. **Auth**: e-post/passord, med `toggleAuthMode()` mellom innlogging og
+   registrering (`sb.auth.signInWithPassword`/`signUp`). NB: denne
+   Supabase-instansen krev **ikkje** e-poststadfesting for at signUp skal
+   gje ei aktiv økt med det same (uventa i lys av notatappen sin
+   "sjekk e-posten din"-tekst i `Auth.jsx` — koden i Riss handterer likevel
+   begge tilfelle, i tilfelle innstillinga vert endra seinare).
+3. **Prosjekt**: liste over brukaren sine prosjekt (`loadProjectList()`),
+   "+ Nytt prosjekt" (`createProjectPrompt()`), og "Logg ut". Klikk på ei
+   rad → `openProject(id,name)`.
+
+**Delt backend med notatappen (LiedLab)** — eksplisitt vedteke etter
+samtale 27.–28. sept. 2026, IKKJE ein eigen Supabase-instans for Riss:
+
+- Same Supabase-prosjekt ("Lied Lab", `hcdtagtkyewhrbrvrbqh`), same
+  `public.projects`-tabell, same brukarkontoar (Supabase Auth). Ein brukar
+  som loggar inn i Riss ser difor **automatisk** same prosjektliste som i
+  notatappen — ikkje ein import mellom to system, same rad i same tabell.
+  Riss kan òg **opprette** nye prosjekt-rader (synlege att i notatappen).
+- **VIKTIG, lett å gløyme**: `public.projects.id` er `bigint NOT NULL`
+  **utan** databasedefault/identity — han vert generert klientsidig
+  (`id: Date.now()`, akkurat som notatappen sin `useStore.js`, sjå
+  `nextCaseNumber()`-mønsteret i hovud-CLAUDE.md). Eit `insert` utan
+  eksplisitt `id` feilar med `23502 null value in column "id"` — fanga
+  opp under eigen test 28. sept., før commit.
+- Riss sine eigne teikningar/modellar ligg i ein ny tabell
+  `public.riss_drawings` (same mønster som `ks_teikningar`/
+  `dtm_dokumenter`: `id bigint identity`, `user_id uuid not null`,
+  `project_id bigint references projects(id)`, domenefelt, RLS på
+  `auth.uid()=user_id`). Kolonnen `data jsonb` held heile tilstanden:
+  `{elements, geoRef, view:{panX,panY,zoom}, scaleRatio}` — nok til å
+  rekonstruere skisse + koordinatregistrering (`geoRef`, sjå eigen
+  seksjon) + vising fullstendig. `saveDrawing()` gjer upsert (insert
+  fyrste gong, elles `update` på `currentDrawingId`).
+- Klienten brukar `@supabase/supabase-js` frå CDN
+  (`cdn.jsdelivr.net/npm/@supabase/supabase-js@2`) — einaste eksterne
+  skript utover Google Fonts. Bryt strengt tatt "ingen avhengigheiter",
+  men ikkje "ingen build-steg" (framleis rein CDN-`<script>`, ingen npm).
+- Testa 28. sept. med ein eigenlaga, mellombels testkonto direkte mot den
+  DELTE produksjonsdatabasen (einaste ekte brukar der frå før var
+  `geirmagnelied@gmail.com` sjølv) — heile registrering→prosjekt→
+  lagring→sideoppfrisking→opning-syklusen stadfesta fungerande via ekte
+  Supabase-kall, ikkje mocka. Testkonto + testdata sletta att etterpå
+  (sjå `DELETE`-spørjinga i chat-historikken viss du treng malen).
+- **Kjende avgrensingar**: gjeste-modus har ingen veg til å logge inn midt
+  i økta (må laste sida på nytt og velje "Logg inn" på start-sida). Inga
+  fleirbrukar-/kontordeling av Riss-teikningar enno, sjølv om
+  `offices`/`office_members` alt finst i databasen for notatappen —
+  `riss_drawings`-RLS er i dag strengt eigar-only (`auth.uid()=user_id`),
+  same nivå som `projects` sjølv har i dag.
+- Eitt uforklart, truleg godarta 400-svar dukka opp éin gong i
+  konsollen under testing (ingen synleg funksjonsfeil, reproduserte seg
+  ikkje ved gjentaking) — truleg intern SDK-oppførsel ved fyrste
+  sesjonssjekk utan lagra økt. Ikkje forfølgt vidare; hald auge med det.
 
 ## Mappestruktur / filer
 
