@@ -382,7 +382,7 @@ body{display:flex;flex-direction:column}
 <div class="pet-sep"></div>
 <button class="pet-btn" onclick="petAction('delete')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="5,7 19,7"/><path d="M9 7V4h6v3"/><rect x="7" y="7" width="10" height="13" rx="1.5"/></svg><span class="pet-tip">Slett</span></button>
 </div>
-<div class="modal-overlay" id="importModal"><div class="modal"><h2>Importer underlag</h2><p>Legg inn eit bilete eller skjermbilete som underlag. Etterpå kan du kalibrere det til riktig målestokk.</p><input type="file" id="importFile" accept="image/*" style="display:none" onchange="handleImportFile(event)"><div class="modal-actions"><button class="btn-ghost" onclick="closeImport()">Avbryt</button><button class="btn-solid" onclick="document.getElementById('importFile').click()">Vel bilete…</button></div></div></div>
+<div class="modal-overlay" id="importModal"><div class="modal"><h2>Importer underlag</h2><p>Legg inn eit bilete/skjermbilete (rasterunderlag), eller ein DXF- eller SOSI-fil (vektorgeometri — vert lagt inn som redigerbare, blåfarga element). Kalibrer etterpå viss målestokk verkar feil.</p><input type="file" id="importFile" accept="image/*,.dxf,.sos,.sosi" style="display:none" onchange="handleImportFile(event)"><div class="modal-actions"><button class="btn-ghost" onclick="closeImport()">Avbryt</button><button class="btn-solid" onclick="document.getElementById('importFile').click()">Vel fil…</button></div></div></div>
 <div class="modal-overlay" id="calibValueModal"><div class="modal"><h2>Kjend lengd</h2><p>Kor lang er strekninga du markerte i verkelegheita?</p><div class="modal-field"><label>Reell lengd</label><input type="text" id="calibValueInput" placeholder="t.d. 5000" autocomplete="off"></div><p style="font-size:12px;color:var(--text3);margin-top:-8px">Oppgi i millimeter. 5 meter = 5000 mm.</p><div class="modal-actions"><button class="btn-ghost" onclick="cancelCalibration()">Avbryt</button><button class="btn-solid" onclick="applyCalibration()">Set målestokk</button></div></div></div>
 <div id="color-picker">
   <div class="cp-header">
@@ -1924,7 +1924,283 @@ function updateZoom(){document.getElementById('zoomVal').textContent=Math.round(
 // ═══════════════════ IMPORT / CALIBRATE ═══════════════════
 function openImport(){document.getElementById('importModal').classList.add('show');}
 function closeImport(){document.getElementById('importModal').classList.remove('show');}
-function handleImportFile(e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>{const img=new Image();img.onload=()=>{const mmPerPx=10;const w=img.naturalWidth*mmPerPx,h=img.naturalHeight*mmPerPx;const center=s2w(CW/2,CH/2);underlay={img,x:center.x-w/2,y:center.y-h/2,w,h,opacity:.6};closeImport();zoomFit();showToast('Underlag lagt inn — bruk «Kalibrer» for å setje målestokk');};img.src=ev.target.result;};r.readAsDataURL(file);e.target.value='';}
+
+// ─── DXF / SOSI vektorimport ───
+// Konverterer CAD/geodata-geometri til vanlege Riss-element (line/polyline/poly),
+// sentrert i synsfeltet som dagens rasterunderlag. DXF/SOSI brukar Y-opp
+// (nord positiv), medan Riss sitt world-koordinatsystem er Y-ned (som skjermen) —
+// difor blir Y snudd i placeImportedGeometry() slik at import ikkje kjem opp-ned.
+const IMPORT_COLOR='#2f6690', IMPORT_WIDTH=0.7;
+
+function dxfPairs(text){
+  const lines=text.split(/\r\n|\r|\n/);
+  const pairs=[];
+  for(let k=0;k+1<lines.length;k+=2){ const code=parseInt(lines[k],10); if(Number.isNaN(code)) continue; pairs.push([code,lines[k+1].trim()]); }
+  return pairs;
+}
+function dxfFindSection(pairs,name){
+  for(let k=0;k<pairs.length-1;k++){
+    if(pairs[k][0]===0 && pairs[k][1]==='SECTION' && pairs[k+1][0]===2 && pairs[k+1][1]===name){
+      let start=k+2, end=start;
+      while(end<pairs.length && !(pairs[end][0]===0 && pairs[end][1]==='ENDSEC')) end++;
+      return {start,end};
+    }
+  }
+  return null;
+}
+function dxfGetCode(raw,code){ const p=raw.find(p=>p[0]===code); return p?p[1]:undefined; }
+function dxfGetNum(raw,code,def){ const v=dxfGetCode(raw,code); return v!==undefined?parseFloat(v):def; }
+function dxfFlatEntities(pairs,lo,hi){
+  const out=[]; let k=lo;
+  while(k<hi){ if(pairs[k][0]===0){ const type=pairs[k][1]; const raw=[]; k++; while(k<hi && pairs[k][0]!==0){raw.push(pairs[k]);k++;} out.push({type,raw}); } else k++; }
+  return out;
+}
+// Slår saman gamalstil POLYLINE + påfølgjande VERTEX-entitetar + SEQEND til éin
+// samla "POLYLINE_FULL", slik at han kan handterast likt med LWPOLYLINE.
+function dxfGroupPolylines(flat){
+  const out=[];
+  for(let k=0;k<flat.length;k++){
+    const e=flat[k];
+    if(e.type==='POLYLINE'){
+      const closed=(parseInt(dxfGetCode(e.raw,70)||'0',10)&1)===1;
+      let m=k+1; const verts=[];
+      while(m<flat.length && flat[m].type==='VERTEX'){ verts.push({x:dxfGetNum(flat[m].raw,10,0),y:dxfGetNum(flat[m].raw,20,0),bulge:dxfGetNum(flat[m].raw,42,0)}); m++; }
+      if(m<flat.length && flat[m].type==='SEQEND') m++;
+      out.push({type:'POLYLINE_FULL',verts,closed});
+      k=m-1;
+    } else if(e.type!=='VERTEX' && e.type!=='SEQEND'){ out.push(e); }
+  }
+  return out;
+}
+function dxfExtractLwVerts(raw){
+  const verts=[]; let cur=null;
+  for(const [code,val] of raw){
+    if(code===10){ if(cur) verts.push(cur); cur={x:parseFloat(val),y:0,bulge:0}; }
+    else if(code===20 && cur) cur.y=parseFloat(val);
+    else if(code===42 && cur) cur.bulge=parseFloat(val);
+  }
+  if(cur) verts.push(cur);
+  return verts;
+}
+// bulge = tan(inkludert vinkel/4), signert (positiv = mot klokka). Standard DXF-definisjon.
+function bulgeToArc(p0,p1,bulge){
+  const dx=p1.x-p0.x, dy=p1.y-p0.y, chord=Math.hypot(dx,dy);
+  if(chord<1e-9||!bulge) return null;
+  const theta=4*Math.atan(bulge);
+  const radius=chord/(2*Math.sin(Math.abs(theta)/2));
+  const dist=radius*Math.cos(theta/2)*Math.sign(theta);
+  const ux=-dy/chord, uy=dx/chord; // venstre-perpendikulær einingsvektor
+  const midx=(p0.x+p1.x)/2, midy=(p0.y+p1.y)/2;
+  const cx=midx+ux*dist, cy=midy+uy*dist;
+  const startAngle=Math.atan2(p0.y-cy,p0.x-cx);
+  return {cx,cy,radius,startAngle,endAngle:startAngle+theta};
+}
+function tessellateBulge(p0,p1,bulge,out){
+  const arc=bulgeToArc(p0,p1,bulge);
+  if(!arc){ out.push(p1); return; }
+  const theta=arc.endAngle-arc.startAngle;
+  const steps=Math.max(2,Math.min(48,Math.ceil(Math.abs(theta)/(Math.PI/24))));
+  for(let k=1;k<=steps;k++){ const t=arc.startAngle+theta*(k/steps); out.push({x:arc.cx+Math.cos(t)*arc.radius,y:arc.cy+Math.sin(t)*arc.radius}); }
+}
+function dxfTessellatePolyVerts(verts,closed){
+  const N=verts.length; if(N===0) return [];
+  const pts=[{x:verts[0].x,y:verts[0].y}];
+  const segCount=closed?N:N-1;
+  for(let idx=0; idx<segCount; idx++){
+    const v0=verts[idx], v1=verts[(idx+1)%N];
+    if(v0.bulge) tessellateBulge({x:v0.x,y:v0.y},{x:v1.x,y:v1.y},v0.bulge,pts);
+    else pts.push({x:v1.x,y:v1.y});
+  }
+  if(closed && pts.length>1){ const f=pts[0],l=pts[pts.length-1]; if(Math.hypot(l.x-f.x,l.y-f.y)<1e-6) pts.pop(); }
+  return pts;
+}
+function dxfTessellateArcDeg(cx,cy,r,a0,a1){
+  let s0=a0*Math.PI/180, s1=a1*Math.PI/180;
+  if(s1<=s0) s1+=2*Math.PI;
+  const theta=s1-s0;
+  const steps=Math.max(2,Math.min(72,Math.ceil(theta/(Math.PI/36))));
+  const pts=[];
+  for(let k=0;k<=steps;k++){ const t=s0+theta*(k/steps); pts.push({x:cx+Math.cos(t)*r,y:cy+Math.sin(t)*r}); }
+  return pts;
+}
+
+// Parsar LINE, LWPOLYLINE (m/bulge-bogar), gamalstil POLYLINE/VERTEX, CIRCLE, ARC
+// og INSERT (blokkreferanse — løyst rekursivt inntil 6 nivå). Ukjende/andre
+// entitetstypar (TEXT, HATCH, DIMENSION, SPLINE m.fl.) vert ignorerte i v1.
+function parseDXF(text){
+  const pairs=dxfPairs(text);
+  let insUnits=0;
+  const hdr=dxfFindSection(pairs,'HEADER');
+  if(hdr){ for(let k=hdr.start;k<hdr.end-1;k++){ if(pairs[k][0]===9 && pairs[k][1]==='$INSUNITS'){ insUnits=parseInt(pairs[k+1][1],10)||0; break; } } }
+  // DXF-einingskode → mm per fileining. 0/manglande = ukjend, antek mm (bruk Kalibrer viss feil).
+  const unitScale=({0:1,1:25.4,2:304.8,3:1000000,4:1,5:10,6:1000,8:0.0254,9:0.254})[insUnits] ?? 1;
+
+  const blocks={};
+  const bsec=dxfFindSection(pairs,'BLOCKS');
+  if(bsec){
+    const flat=dxfGroupPolylines(dxfFlatEntities(pairs,bsec.start,bsec.end));
+    let k=0;
+    while(k<flat.length){
+      if(flat[k].type==='BLOCK'){
+        const name=dxfGetCode(flat[k].raw,2);
+        const bx=dxfGetNum(flat[k].raw,10,0), by=dxfGetNum(flat[k].raw,20,0);
+        let m=k+1; const ents=[];
+        while(m<flat.length && flat[m].type!=='ENDBLK'){ ents.push(flat[m]); m++; }
+        blocks[name]={base:{x:bx,y:by},entities:ents};
+        k=m+1;
+      } else k++;
+    }
+  }
+
+  const rawOut=[];
+  function emit(e, tf, depth){
+    if(e.type==='LINE'){
+      const a=tf({x:dxfGetNum(e.raw,10,0),y:dxfGetNum(e.raw,20,0)});
+      const b=tf({x:dxfGetNum(e.raw,11,0),y:dxfGetNum(e.raw,21,0)});
+      rawOut.push({type:'line',x1:a.x,y1:a.y,x2:b.x,y2:b.y,color:IMPORT_COLOR,width:IMPORT_WIDTH});
+    } else if(e.type==='LWPOLYLINE'){
+      const verts=dxfExtractLwVerts(e.raw);
+      const closed=(parseInt(dxfGetCode(e.raw,70)||'0',10)&1)===1;
+      if(verts.length>=2){ const pts=dxfTessellatePolyVerts(verts,closed).map(tf); if(pts.length>=2) rawOut.push({type:closed?'poly':'polyline',pts,closed,color:IMPORT_COLOR,width:IMPORT_WIDTH}); }
+    } else if(e.type==='POLYLINE_FULL'){
+      if(e.verts.length>=2){ const pts=dxfTessellatePolyVerts(e.verts,e.closed).map(tf); if(pts.length>=2) rawOut.push({type:e.closed?'poly':'polyline',pts,closed:e.closed,color:IMPORT_COLOR,width:IMPORT_WIDTH}); }
+    } else if(e.type==='CIRCLE'){
+      const cx=dxfGetNum(e.raw,10,0),cy=dxfGetNum(e.raw,20,0),r=dxfGetNum(e.raw,40,0);
+      const pts=[]; const steps=48; for(let s=0;s<steps;s++){ const t=2*Math.PI*s/steps; pts.push(tf({x:cx+Math.cos(t)*r,y:cy+Math.sin(t)*r})); }
+      rawOut.push({type:'poly',pts,closed:true,color:IMPORT_COLOR,width:IMPORT_WIDTH});
+    } else if(e.type==='ARC'){
+      const cx=dxfGetNum(e.raw,10,0),cy=dxfGetNum(e.raw,20,0),r=dxfGetNum(e.raw,40,0),a0=dxfGetNum(e.raw,50,0),a1=dxfGetNum(e.raw,51,0);
+      const pts=dxfTessellateArcDeg(cx,cy,r,a0,a1).map(tf);
+      if(pts.length>=2) rawOut.push({type:'polyline',pts,color:IMPORT_COLOR,width:IMPORT_WIDTH});
+    } else if(e.type==='INSERT' && depth<6){
+      const name=dxfGetCode(e.raw,2);
+      const blk=blocks[name];
+      if(blk){
+        const ix=dxfGetNum(e.raw,10,0), iy=dxfGetNum(e.raw,20,0);
+        const sx=dxfGetNum(e.raw,41,1), sy=dxfGetNum(e.raw,42,1);
+        const rot=dxfGetNum(e.raw,50,0)*Math.PI/180;
+        const base=blk.base;
+        const localTf=(p)=>{
+          const lx=(p.x-base.x)*sx, ly=(p.y-base.y)*sy;
+          const rx=lx*Math.cos(rot)-ly*Math.sin(rot), ry=lx*Math.sin(rot)+ly*Math.cos(rot);
+          return tf({x:rx+ix, y:ry+iy});
+        };
+        for(const be of blk.entities) emit(be, localTf, depth+1);
+      }
+    }
+  }
+
+  const esec=dxfFindSection(pairs,'ENTITIES');
+  if(esec){
+    const flat=dxfGroupPolylines(dxfFlatEntities(pairs,esec.start,esec.end));
+    const identity=(p)=>p;
+    for(const e of flat) emit(e, identity, 0);
+  }
+  return {elements:rawOut, unitScale};
+}
+
+// Parsar SOSI-objekt med direkte NØ-koordinatblokk (KURVE, LINJE, GRENSE m.fl.)
+// til polylinjer/polygon. FLATE-objekt som refererer andre kurver via REF
+// (topologisk SOSI) vert ikkje løyst i v1 — berre objekt med inline NØ-liste.
+function parseSOSI(text){
+  const lines=text.split(/\r\n|\r|\n/);
+  let enhet=0.01; // meter per rå SOSI-koordinateining — default cm-presisjon viss ikkje funne
+  for(const l of lines){ const m=l.match(/^\.+ENHET\s+([\d.]+)/i); if(m){ enhet=parseFloat(m[1]); break; } }
+  const dotDepth=(l)=>{ const m=l.match(/^(\.+)/); return m?m[1].length:0; };
+  const isCoordLine=(t)=>/^-?\d+(\.\d+)?\s+-?\d+(\.\d+)?(\s+-?\d+(\.\d+)?)?$/.test(t);
+
+  const rawOut=[];
+  const n=lines.length; let i=0;
+  while(i<n){
+    const line=lines[i], trimmed=line.trim();
+    if(dotDepth(line)===1 && /^\.[A-ZÆØÅ]/i.test(trimmed)){
+      let j=i+1; const coords=[]; let inBlock=false;
+      while(j<n){
+        const lj=lines[j], dj=dotDepth(lj), tj=lj.trim();
+        if(dj===1) break; // neste toppnivå-objekt startar
+        if(/^\.+N[ØO]/i.test(tj)){ inBlock=true; j++; continue; }
+        if(inBlock){
+          if(isCoordLine(tj)){
+            const parts=tj.split(/\s+/).map(Number);
+            const north=parts[0]*enhet, east=parts[1]*enhet; // SOSI: N Ø = nord, aust
+            coords.push({x:east*1000, y:north*1000}); // m → mm (framleis Y-opp her)
+          } else if(tj.startsWith('.')) inBlock=false;
+        }
+        j++;
+      }
+      if(coords.length>=2){
+        let closed=Math.hypot(coords[0].x-coords[coords.length-1].x,coords[0].y-coords[coords.length-1].y)<1;
+        if(closed) coords.pop();
+        if(coords.length>=2) rawOut.push({type:closed?'poly':'polyline',pts:coords,closed,color:IMPORT_COLOR,width:IMPORT_WIDTH});
+      }
+      i=j; continue;
+    }
+    i++;
+  }
+  return rawOut;
+}
+
+// Felles plassering: skalerer til mm, snur Y (fil-format er Y-opp, Riss er Y-ned),
+// sentrerer i noverande synsfelt (som rasterunderlag), legg til som vanlege
+// element og vel dei — Delete fjernar heile importen viss målestokk/plassering er feil.
+function placeImportedGeometry(rawEls, unitScale, label){
+  if(!rawEls.length){ showToast('Fann ingen støtta geometri i fila'); return; }
+  const conv=(p)=>({x:p.x*unitScale, y:-p.y*unitScale});
+  for(const el of rawEls){
+    if(el.pts) el.pts=el.pts.map(conv);
+    if(el.x1!==undefined){ const a=conv({x:el.x1,y:el.y1}), b=conv({x:el.x2,y:el.y2}); el.x1=a.x;el.y1=a.y;el.x2=b.x;el.y2=b.y; }
+  }
+  let a=1e15,b=1e15,c=-1e15,d=-1e15;
+  for(const el of rawEls){ const bb=bbox(el); if(!bb) continue; a=Math.min(a,bb.minx);b=Math.min(b,bb.miny);c=Math.max(c,bb.maxx);d=Math.max(d,bb.maxy); }
+  if(a>c){ showToast('Fann ingen støtta geometri i fila'); return; }
+  const cx0=(a+c)/2, cy0=(b+d)/2;
+  const target=s2w(CW/2,CH/2);
+  const dx=target.x-cx0, dy=target.y-cy0;
+  for(const el of rawEls){
+    if(el.pts) el.pts=el.pts.map(p=>({x:p.x+dx,y:p.y+dy}));
+    if(el.x1!==undefined){ el.x1+=dx; el.y1+=dy; el.x2+=dx; el.y2+=dy; }
+    el.id=uid();
+  }
+  elements.push(...rawEls);
+  selection.clear(); rawEls.forEach(el=>selection.add(el.id));
+  closeImport(); zoomFit(); updateProps(); render();
+  showToast(rawEls.length+' element importert frå '+label+' — merka, bruk «Kalibrer» viss målestokk er feil');
+}
+
+function handleImportFile(e){
+  const file=e.target.files[0]; if(!file) return;
+  const name=file.name.toLowerCase();
+  if(name.endsWith('.dxf')){
+    const r=new FileReader();
+    r.onload=ev=>{
+      try{
+        const res=parseDXF(ev.target.result);
+        placeImportedGeometry(res.elements, res.unitScale, 'DXF');
+      }catch(err){ console.error(err); showToast('Klarte ikkje å lese DXF-fila: '+err.message); }
+    };
+    r.readAsText(file); e.target.value=''; return;
+  }
+  if(name.endsWith('.sos')||name.endsWith('.sosi')){
+    const r=new FileReader();
+    r.onload=ev=>{
+      try{
+        const buf=ev.target.result;
+        let txt=new TextDecoder('utf-8').decode(buf);
+        const em=txt.match(/TEGNSETT\s+(\S+)/i);
+        const enc=(em?em[1]:'UTF8').toUpperCase();
+        if(!/UTF-?8/.test(enc)){
+          const map={'ISO8859-1':'iso-8859-1','ANSI':'windows-1252','DOSN8':'ibm865','DOS':'ibm865'};
+          txt=new TextDecoder(map[enc]||'iso-8859-1').decode(buf);
+        }
+        const res=parseSOSI(txt);
+        placeImportedGeometry(res, 1, 'SOSI');
+      }catch(err){ console.error(err); showToast('Klarte ikkje å lese SOSI-fila: '+err.message); }
+    };
+    r.readAsArrayBuffer(file); e.target.value=''; return;
+  }
+  // Rasterunderlag (bilete/skjermbilete) — uendra frå før
+  const r=new FileReader();r.onload=ev=>{const img=new Image();img.onload=()=>{const mmPerPx=10;const w=img.naturalWidth*mmPerPx,h=img.naturalHeight*mmPerPx;const center=s2w(CW/2,CH/2);underlay={img,x:center.x-w/2,y:center.y-h/2,w,h,opacity:.6};closeImport();zoomFit();showToast('Underlag lagt inn — bruk «Kalibrer» for å setje målestokk');};img.src=ev.target.result;};r.readAsDataURL(file);e.target.value='';
+}
 function startCalibration(){calibrating=true;calibStage=0;calibP1=calibP2=null;setTool('select');document.getElementById('calib-banner').classList.add('show');updateCalibBanner();showToast('Klikk to punkt på ein kjend lengd');}
 function updateCalibBanner(){document.getElementById('calibStep').textContent=calibStage+1;document.getElementById('calibText').textContent=calibStage===0?'Klikk første punkt på ei kjend lengd':'Klikk andre punkt';}
 function cancelCalibration(){calibrating=false;calibStage=0;calibP1=calibP2=null;document.getElementById('calib-banner').classList.remove('show');document.getElementById('calibValueModal').classList.remove('show');renderOverlay();}
