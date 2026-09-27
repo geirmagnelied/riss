@@ -350,6 +350,7 @@ body{display:flex;flex-direction:column}
 <div class="status-divider"></div>
 <div class="snap-chip" style="cursor:default;background:transparent;border-color:transparent"><span style="color:var(--text3)">Shift-vinkel</span><input id="customAngleInput" type="number" min="0" max="89" value="30" oninput="customAngle=parseFloat(this.value)||0" style="width:38px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:11px;padding:2px 4px;text-align:center"><span style="color:var(--text3)">°</span></div>
 </div>
+<div class="status-item" id="geoRefStatus" style="display:none" title=""><span class="status-divider"></span><span class="label">REF</span><span class="val" id="geoRefVal">—</span></div>
 <div class="status-divider"></div>
 <div class="status-item"><span class="label" id="elCount">0 element</span></div>
 <div class="zoom-control"><button class="zoom-btn" onclick="zoomBy(0.8)">−</button><span class="zoom-val" id="zoomVal">100%</span><button class="zoom-btn" onclick="zoomBy(1.25)">+</button><button class="zoom-btn" onclick="zoomFit()" title="Tilpass">⊡</button></div>
@@ -2102,10 +2103,15 @@ function parseDXF(text){
 // Parsar SOSI-objekt med direkte NØ-koordinatblokk (KURVE, LINJE, GRENSE m.fl.)
 // til polylinjer/polygon. FLATE-objekt som refererer andre kurver via REF
 // (topologisk SOSI) vert ikkje løyst i v1 — berre objekt med inline NØ-liste.
+// Koordinatane vert returnerte i VERKELEGE METER (Y-opp, ikkje sentrerte) saman
+// med KOORDSYS-koden frå .HODE, slik at placeImportedGeometry() kan halde dei
+// samanhengande med opphavleg koordinatsystem — sjå geoRef-forklaringa der.
 function parseSOSI(text){
   const lines=text.split(/\r\n|\r|\n/);
   let enhet=0.01; // meter per rå SOSI-koordinateining — default cm-presisjon viss ikkje funne
   for(const l of lines){ const m=l.match(/^\.+ENHET\s+([\d.]+)/i); if(m){ enhet=parseFloat(m[1]); break; } }
+  let koordsys=null;
+  for(const l of lines){ const m=l.match(/^\.+KOORDSYS\s+(\S+)/i); if(m){ koordsys=m[1]; break; } }
   const dotDepth=(l)=>{ const m=l.match(/^(\.+)/); return m?m[1].length:0; };
   const isCoordLine=(t)=>/^-?\d+(\.\d+)?\s+-?\d+(\.\d+)?(\s+-?\d+(\.\d+)?)?$/.test(t);
 
@@ -2122,14 +2128,14 @@ function parseSOSI(text){
         if(inBlock){
           if(isCoordLine(tj)){
             const parts=tj.split(/\s+/).map(Number);
-            const north=parts[0]*enhet, east=parts[1]*enhet; // SOSI: N Ø = nord, aust
-            coords.push({x:east*1000, y:north*1000}); // m → mm (framleis Y-opp her)
+            const north=parts[0]*enhet, east=parts[1]*enhet; // SOSI: N Ø = nord, aust (meter)
+            coords.push({x:east, y:north}); // verkelege meter, framleis Y-opp
           } else if(tj.startsWith('.')) inBlock=false;
         }
         j++;
       }
       if(coords.length>=2){
-        let closed=Math.hypot(coords[0].x-coords[coords.length-1].x,coords[0].y-coords[coords.length-1].y)<1;
+        let closed=Math.hypot(coords[0].x-coords[coords.length-1].x,coords[0].y-coords[coords.length-1].y)<0.001; // <1mm
         if(closed) coords.pop();
         if(coords.length>=2) rawOut.push({type:closed?'poly':'polyline',pts:coords,closed,color:IMPORT_COLOR,width:IMPORT_WIDTH});
       }
@@ -2137,34 +2143,91 @@ function parseSOSI(text){
     }
     i++;
   }
-  return rawOut;
+  return {elements:rawOut, koordsys};
 }
 
-// Felles plassering: skalerer til mm, snur Y (fil-format er Y-opp, Riss er Y-ned),
-// sentrerer i noverande synsfelt (som rasterunderlag), legg til som vanlege
-// element og vel dei — Delete fjernar heile importen viss målestokk/plassering er feil.
-function placeImportedGeometry(rawEls, unitScale, label){
+// Enkel min/max-boks over rå (meter-)koordinatar til line/pts-element — brukt
+// til å finne senterpunktet til éin import, uavhengig av Riss sin generelle
+// bbox()-funksjon (som ventar ferdig-plasserte mm-element).
+function meterBBox(rawEls){
+  let a=1e15,b=1e15,c=-1e15,d=-1e15;
+  for(const el of rawEls){
+    if(el.pts) for(const p of el.pts){ a=Math.min(a,p.x);b=Math.min(b,p.y);c=Math.max(c,p.x);d=Math.max(d,p.y); }
+    if(el.x1!==undefined){ a=Math.min(a,el.x1,el.x2);b=Math.min(b,el.y1,el.y2);c=Math.max(c,el.x1,el.x2);d=Math.max(d,el.y1,el.y2); }
+  }
+  return a>c ? null : {minx:a,miny:b,maxx:c,maxy:d};
+}
+
+// geoRef held fast eit felles verkeleg-verd (KOORDSYS/meter) referansepunkt
+// for HEILE arbeidsøkta, sett av den fyrste geo-eigna importen (SOSI med
+// KOORDSYS, eller ein DXF med usannsynleg store koordinatar — truleg alt i
+// UTM-liknande absoluttkoordinatar). Alle seinare geo-eigna importar vert
+// plassert relativt til DENNE referansen i staden for å verte sentrerte
+// uavhengig kvar for seg — slik held fleire filer frå same tomt/prosjekt
+// rett innbyrdes plassering, akkurat slik dei ligg i verkelegheita.
+// NB: berre i minnet for denne økta — appen har ingen lagre/last-funksjon
+// enno, so referansen forsvinn ved sideoppdatering, akkurat som resten av
+// teikninga. Manuell «Kalibrer» i etterkant vil bryte geo-registreringa.
+let geoRef=null;
+
+function updateGeoRefUI(){
+  const el=document.getElementById('geoRefStatus'), val=document.getElementById('geoRefVal');
+  if(!geoRef){ el.style.display='none'; return; }
+  el.style.display='';
+  const label = geoRef.koordsys!=null ? ('KOORDSYS '+geoRef.koordsys) : 'ukjend CRS';
+  val.textContent = label;
+  el.title = 'Lokalt (0,0) i Riss tilsvarer N'+geoRef.north0.toFixed(2)+' Ø'+geoRef.east0.toFixed(2)+' i '+label+'. Berre gyldig for denne økta (ingen lagring enno) — og vert ugyldig viss du brukar «Kalibrer» etterpå.';
+}
+
+// Felles plassering: skalerer til meter/mm, snur Y (fil-format er Y-opp, Riss
+// er Y-ned), og registrerer mot geoRef (sjå over) i staden for å sentrere kvar
+// import uavhengig — slik held import #2, #3 osb. rett innbyrdes avstand og
+// retning til import #1, akkurat som i det opphavlege koordinatsystemet.
+// Legg til som vanlege element og vel dei — Delete fjernar heile importen
+// viss plassering/målestokk er feil.
+function placeImportedGeometry(rawEls, meterScale, koordsysCode, label){
   if(!rawEls.length){ showToast('Fann ingen støtta geometri i fila'); return; }
-  const conv=(p)=>({x:p.x*unitScale, y:-p.y*unitScale});
+  const mmScale=meterScale*1000;
+  const conv=(p)=>({x:p.x*mmScale, y:p.y*mmScale}); // mm, framleis Y-opp — flip skjer i shift() under
   for(const el of rawEls){
     if(el.pts) el.pts=el.pts.map(conv);
     if(el.x1!==undefined){ const a=conv({x:el.x1,y:el.y1}), b=conv({x:el.x2,y:el.y2}); el.x1=a.x;el.y1=a.y;el.x2=b.x;el.y2=b.y; }
   }
-  let a=1e15,b=1e15,c=-1e15,d=-1e15;
-  for(const el of rawEls){ const bb=bbox(el); if(!bb) continue; a=Math.min(a,bb.minx);b=Math.min(b,bb.miny);c=Math.max(c,bb.maxx);d=Math.max(d,bb.maxy); }
-  if(a>c){ showToast('Fann ingen støtta geometri i fila'); return; }
-  const cx0=(a+c)/2, cy0=(b+d)/2;
-  const target=s2w(CW/2,CH/2);
-  const dx=target.x-cx0, dy=target.y-cy0;
+  const bb=meterBBox(rawEls);
+  if(!bb){ showToast('Fann ingen støtta geometri i fila'); return; }
+  const cxm=(bb.minx+bb.maxx)/2000, cym=(bb.miny+bb.maxy)/2000; // mm → meter, senter for DENNE importen
+
+  // Geo-eigna: SOSI har alltid ein KOORDSYS-kode; ein DXF utan slik kode vert
+  // rekna som geo-eigna berre viss koordinatane er usannsynleg store for ei
+  // vanleg lokal skisse (>50 000 m frå 0 — typisk for UTM-eksporterte DXF-ar).
+  const isGeoish = (koordsysCode!=null) || (Math.max(Math.abs(cxm),Math.abs(cym))>50000);
+  let anchor, north0, east0, mismatch=false;
+  if(isGeoish){
+    if(!geoRef){ geoRef={koordsys:koordsysCode, north0:cym, east0:cxm, anchor:s2w(CW/2,CH/2)}; }
+    else if(koordsysCode!=null){
+      if(geoRef.koordsys!=null && geoRef.koordsys!==koordsysCode) mismatch=true;
+      else if(geoRef.koordsys==null) geoRef.koordsys=koordsysCode;
+    }
+    anchor=geoRef.anchor; north0=geoRef.north0; east0=geoRef.east0;
+  } else {
+    anchor=s2w(CW/2,CH/2); north0=cym; east0=cxm;
+  }
+  const dxMm=east0*1000, dyMm=north0*1000;
+  const shift=(p)=>({x:anchor.x+(p.x-dxMm), y:anchor.y-(p.y-dyMm)}); // p i mm Y-opp → Riss-world mm Y-ned
   for(const el of rawEls){
-    if(el.pts) el.pts=el.pts.map(p=>({x:p.x+dx,y:p.y+dy}));
-    if(el.x1!==undefined){ el.x1+=dx; el.y1+=dy; el.x2+=dx; el.y2+=dy; }
+    if(el.pts) el.pts=el.pts.map(shift);
+    if(el.x1!==undefined){ const a=shift({x:el.x1,y:el.y1}), b=shift({x:el.x2,y:el.y2}); el.x1=a.x;el.y1=a.y;el.x2=b.x;el.y2=b.y; }
     el.id=uid();
   }
   elements.push(...rawEls);
   selection.clear(); rawEls.forEach(el=>selection.add(el.id));
-  closeImport(); zoomFit(); updateProps(); render();
-  showToast(rawEls.length+' element importert frå '+label+' — merka, bruk «Kalibrer» viss målestokk er feil');
+  closeImport(); zoomFit(); updateProps(); updateGeoRefUI(); render();
+
+  let msg=rawEls.length+' element importert frå '+label;
+  if(mismatch) msg+=' — NB: fila brukar KOORDSYS '+koordsysCode+', ulikt frå førre import (KOORDSYS '+geoRef.koordsys+') — posisjon kan vere feil';
+  else if(isGeoish) msg+=(geoRef.koordsys!=null?(' — registrert mot KOORDSYS '+geoRef.koordsys):' — registrert mot felles lokalt nullpunkt')+' (sjå REF nedst)';
+  else msg+=' — merka, bruk «Kalibrer» viss målestokk er feil';
+  showToast(msg);
 }
 
 function handleImportFile(e){
@@ -2175,7 +2238,7 @@ function handleImportFile(e){
     r.onload=ev=>{
       try{
         const res=parseDXF(ev.target.result);
-        placeImportedGeometry(res.elements, res.unitScale, 'DXF');
+        placeImportedGeometry(res.elements, res.unitScale/1000, null, 'DXF');
       }catch(err){ console.error(err); showToast('Klarte ikkje å lese DXF-fila: '+err.message); }
     };
     r.readAsText(file); e.target.value=''; return;
@@ -2193,7 +2256,7 @@ function handleImportFile(e){
           txt=new TextDecoder(map[enc]||'iso-8859-1').decode(buf);
         }
         const res=parseSOSI(txt);
-        placeImportedGeometry(res, 1, 'SOSI');
+        placeImportedGeometry(res.elements, 1, res.koordsys, 'SOSI');
       }catch(err){ console.error(err); showToast('Klarte ikkje å lese SOSI-fila: '+err.message); }
     };
     r.readAsArrayBuffer(file); e.target.value=''; return;
