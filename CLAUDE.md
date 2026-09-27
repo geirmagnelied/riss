@@ -53,6 +53,43 @@ direkte i nettlesaren frå éi fil.
 - Topbar: målestokk-val, "Importer underlag", "Skjermbilde", "Kalibrer",
   "Eksporter", "Del".
 
+## DXF/SOSI-vektorimport (lagt til 27. sept. 2026)
+
+"Importer underlag"-modalen tek no òg `.dxf` og `.sos`/`.sosi`, ikkje berre
+bilete. Vektorimport vert konvertert til vanlege, redigerbare Riss-element
+(`line`/`polyline`/`poly`) i eigen farge `#2f6690` (skil dei frå eigne
+skisser), sentrert i synsfeltet og automatisk valde etter import (Delete
+fjernar heile importen om plassering/målestokk er feil — ingen eigen
+lag-/låse-mekanisme enno).
+
+- **DXF**: les `HEADER`/`$INSUNITS` for einingskonvertering (mm/cm/m/tommar
+  → mm), støttar `LINE`, `LWPOLYLINE` (med bulge→boge-tessellering),
+  gamalstil `POLYLINE`/`VERTEX`/`SEQEND`, `CIRCLE`, `ARC`, og `INSERT`
+  (blokkreferansar løyst rekursivt inntil 6 nivå via `BLOCKS`-seksjonen).
+  **Ikkje støtta enno**: `TEXT`/`MTEXT`, `HATCH`, `DIMENSION`, `SPLINE`,
+  `ELLIPSE`, lagfarge/lagsynlegheit frå `TABLES`-seksjonen — vert stillfarne
+  ignorerte (ingen feil, berre uteletne).
+- **SOSI**: les `..ENHET` frå `.HODE` for koordinatskala og `..TEGNSETT` for
+  teiknkoding (UTF-8/ISO8859-1/ANSI/DOSN8). Plukkar opp *alle* objekttypar
+  (`.KURVE`, `.LINJE`, `.GRENSE` m.fl.) som har ein inline `..NØ`-
+  koordinatblokk. **Ikkje støtta enno**: `.FLATE`/topologiske objekt som
+  refererer andre kurver via `.REF` i staden for å liste koordinatar sjølv
+  (typisk i matrikkel-/eigedomsdata) — desse manglar geometri og vert
+  hoppa over.
+- Begge format brukar Y-opp (nord/verkeleg koordinatsystem), medan Riss sitt
+  interne world-koordinatsystem er Y-ned (som skjerm-px) — difor vert Y
+  snudd ved import (`placeImportedGeometry()` i `index.html`), elles hadde
+  importen kome opp-ned.
+- Målestokk er sjeldan 100 % sikker (DXF utan `$INSUNITS`, eller SOSI med
+  uvanleg `ENHET`) — appen sin eksisterande "Kalibrer"-funksjon verkar
+  uendra som manuell rettar-mekanisme etterpå, akkurat som for
+  rasterunderlag.
+- **Neste steg** (ikkje gjort): DXF-eksport (for bruk attende i ArchiCAD/
+  AutoCAD), lag-/synlegheitsstyring for importert geometri, og — som eige,
+  større steg — ein 3D-visingsmodus (sjå historikk i chat/commit for
+  bakgrunn: tanken er 3D som ekstrudering av same vegg/element-datamodell,
+  ikkje eit separat 3D-datasett).
+
 ## Arbeidsflyt for endringar
 
 Når Geir Magne ber om ei endring:
