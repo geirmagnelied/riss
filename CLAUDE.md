@@ -13,10 +13,14 @@ arkitektkontor.
 - Live nettside: `https://riss.liedarkitektur.no` (Vercel, alias for
   `riss-nu.vercel.app`, auto-deploy ved push til `main`)
 - Lokal mappe: `C:\Users\gemli\Jottacloud\Lied Lab\Web\Riss`
-- Lokal statisk dev-server for testing: `preview_start` med namn
-  `riss-static` (definert i `LiedLab/.claude/launch.json`, sidan
-  Claude Code-sesjonen sitt arbeidsrotpunkt er `LiedLab`, ikkje `Riss` —
-  peikar på `../Riss` og køyrer `npx http-server` på port 5588).
+- Lokal statisk dev-server for testing: **ikkje** via `preview_start`
+  med namn (Claude Code-sesjonen sitt arbeidsrotpunkt er `LiedLab`, og
+  eit forsøk på å leggje ein `riss-static`-config i `LiedLab/.claude/
+  launch.json` vart reversert — feil stad å blande inn eit anna
+  repo sin dev-server-config). Start i staden manuelt via Bash:
+  `cd "…/Web/Riss" && npx --yes http-server -p 5588 -c-1` (bakgrunn),
+  opne so `http://localhost:5588/index.html` med `navigate`/`preview_start
+  {url:…}`. Hugs å stoppe prosessen på port 5588 att etter testing.
 
 ## Start-side, innlogging og prosjekt (lagt til 28. sept. 2026)
 
@@ -81,6 +85,77 @@ samtale 27.–28. sept. 2026, IKKJE ein eigen Supabase-instans for Riss:
   konsollen under testing (ingen synleg funksjonsfeil, reproduserte seg
   ikkje ved gjentaking) — truleg intern SDK-oppførsel ved fyrste
   sesjonssjekk utan lagra økt. Ikkje forfølgt vidare; hald auge med det.
+
+## Kart-modul for stadbundne byggeprosjekt (lagt til 30. sept. 2026)
+
+Ny modul-rail heilt til venstre (`#moduleRail`, gjenbruker `.tool`-stilen
+frå verktøyraila) med to knappar: **Skisse** (dagens teiknemodus, standard
+aktiv) og **Kart** (ny). `setModule('skisse'|'kart')` styrer alt — viser/
+skjuler `#toolrail`+`#canvas-host`+`#statusbar` vs. `#mapArea`+
+`#mapBottomBar`. Kartmotoren er **Leaflet** (CDN,
+`cdn.jsdelivr.net/npm/leaflet@1.9.4`) — nytt eksternt skript i tillegg til
+supabase-js, framleis ingen build-steg.
+
+Klikk på **Kart**-knappen opnar:
+- Sjølve kartet (`#mapHost`, `initMap()`), sentrert på brukaren sin
+  posisjon via `navigator.geolocation` (spør om løyve; fell tilbake til
+  Noreg-oversikt `[64.5,11]` zoom 5 viss avslått/utilgjengeleg).
+- Ein eigen venstre-sidebar (`#mapSidebar`, 200px, til høgre for
+  modul-raila) med **"Vel utsnitt"** (`startExtentSelect()` —
+  klikk-og-dra teiknar ein rute på kartet, lagrar `mapModule.siteExtent`
+  som ein Leaflet-bounds og viser senterkoordinat i sidebaren) og
+  **"Importer eige kartgrunnlag"** (`handleMapImportFile()` — legg eit
+  rastebilete inn som `L.imageOverlay` over *gjeldande synsfelt*; **ingen
+  drag/endre-storleik-handtak enno** — brukar må zoome/panorere til rett
+  utsnitt FØR import, same enkle v1-tilnærming som Riss sitt eksisterande
+  rasterunderlag i skissemodus).
+
+### Kjelder (verifisert direkte mot kvar teneste sitt GetCapabilities
+30. sept. 2026 — sjå chat-historikk for full research-logg)
+
+Alle gratis/opne, ingen API-nøkkel, alle Kartverket-heimla:
+
+| Lag | Type | URL / lagnamn | Merknad |
+|---|---|---|---|
+| Topografisk (farge) | WMTS | `cache.kartverket.no/v1/wmts/1.0.0/topo/...` | Standard grunnkart |
+| Gråtone | WMTS | same, lag `topograatone` | Alternativ grunnkart |
+| Bygningar | WMS | `wms.geonorge.no/skwms1/wms.inspire_bu`, lag `BU.Building` | INSPIRE-bygningsdata, matrikkelen |
+| Eigedomsgrenser | WMS | `wms.geonorge.no/skwms1/wms.matrikkel`, lag `eiendomsgrense` | NB: same teneste har IKKJE bygningslag |
+| Terrengskygge | WMS | `wms.geonorge.no/skwms1/wms.terrengmodell`, lag `relieff` | Kan verke flatt/einsfarga heilt nære zoom-nivå over tett by — normalt, ikkje feil |
+
+**VIKTIG, lett å gjere feil**: Kartverket sin WMTS-cache brukar
+**nullpolstra tosifra** TileMatrix-identifikatorar (`"00".."18"`), ikkje
+rein zoom-heiltal — stadfesta direkte i WMTSCapabilities.xml. Difor
+`PaddedWMTS` (`L.TileLayer.extend`) i staden for vanleg `L.tileLayer`
+med `{z}`.
+
+**Bevisst UTELATE i v1**: "Norge i bilder" (flyfoto/ortofoto) — tenesta
+krev eit tidsavgrensa token (genererast manuelt på
+`services.norgeibilder.no/token`, varer maks 1 veke) — uforeinleg med
+statisk fil utan backend-proxy eller manuell token-oppdatering. Kan
+leggjast til som eit eige, token-gata lag (brukar limer inn eigen token,
+lagra i `localStorage`) om ønskeleg seinare.
+
+**Botnrad** (`#mapBottomBar`, gjenbruker `.snap-chip`-stilen frå
+skissemodus sin statuslinje): grunnkart-val (`setMapBase()`, éin om
+gongen) og lag-av/på (`toggleMapOverlay()`, uavhengige). Leaflet sin
+innebygde attribusjonskontroll viser "© Kartverket"/"© Geonorge" per lag
+automatisk (NLOD-krav, handtert utan eigen kode).
+
+**Testa** 30. sept. direkte mot dei ekte tenestene (ikkje mocka) med
+skjermbilete: grunnkart-byte, alle tre overlegg (bygningsomriss synlege
+over Oslo sentrum — stadfesta visuelt), utsnitt-verktøyet (rektangel
+teikna presist, koordinat vist), eige-kartgrunnlag-import (simulert med
+eit generert testbilete), og retur til Skisse-modus utan regresjon.
+Ingen konsollfeil gjennom heile testen.
+
+**Ikkje bygd enno** (naturlege neste steg, ikkje uttrykt som prioritert
+av Geir Magne enno): lagring av `mapModule.siteExtent`/kartgrunnlag til
+Supabase (kopla til `currentProject`, same mønster som `riss_drawings`),
+drag/endre-storleik på importert kartgrunnlag, flyfoto-lag med
+brukar-token, og evt. å la "Vel utsnitt" faktisk styre kva som vert
+lasta/vist (i dag er det berre eit valt punkt/område, ikkje kopla til
+noko anna enno).
 
 ## Mappestruktur / filer
 

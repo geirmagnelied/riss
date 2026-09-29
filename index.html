@@ -10,6 +10,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Riss">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 :root{
@@ -105,6 +107,20 @@ body.pre-start #topbar, body.pre-start #workspace{display:none}
 .project-row:hover{background:var(--surface2);border-color:var(--border2)}
 .project-row .pr-name{font-family:'Inter',sans-serif;font-size:14px;font-weight:600;color:var(--ink)}
 .project-row .pr-meta{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text3)}
+
+/* ─── KART-MODUL ─── */
+#moduleRail{width:56px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:4px;flex-shrink:0;z-index:21}
+#mapArea{flex:1;display:none;overflow:hidden;position:relative}
+#mapSidebar{width:200px;background:var(--surface);border-right:1px solid var(--border);flex-shrink:0;padding:14px 12px;display:flex;flex-direction:column;gap:8px;z-index:20;overflow-y:auto}
+#mapSidebar .ms-title{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin:4px 0 2px}
+.map-sidebar-btn{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface2);color:var(--text2);font-family:'Inter',sans-serif;font-size:13px;font-weight:500;cursor:pointer;transition:.12s;text-align:left}
+.map-sidebar-btn:hover{background:var(--border);color:var(--ink)}
+.map-sidebar-btn.active{background:var(--accent-bg);border-color:rgba(194,65,12,.25);color:var(--accent)}
+#mapHost{flex:1;position:relative;background:#e5e3dd}
+#mapBottomBar{display:none;align-items:center;gap:10px;height:44px;padding:0 16px;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;overflow-x:auto}
+#mapBottomBar .mb-lbl{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);white-space:nowrap}
+#mapBottomBar .status-divider{width:1px;height:20px;background:var(--border);flex-shrink:0}
+#extentInfo{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);white-space:nowrap}
 #statusbar{height:34px;background:var(--surface);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 14px;gap:14px;flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);z-index:20}
 .status-item{display:flex;align-items:center;gap:6px}
 .status-item .label{color:var(--text3)}
@@ -327,6 +343,10 @@ body.pre-start #topbar, body.pre-start #workspace{display:none}
 <button class="tb-action primary" onclick="showToast('Deling med sanntidssamarbeid kjem i neste fase')"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="4" r="2"/><circle cx="4" cy="8" r="2"/><circle cx="12" cy="12" r="2"/><path d="M5.7 7l4.6-2M5.7 9l4.6 2"/></svg>Del</button>
 </div>
 <div id="workspace">
+<div id="moduleRail">
+<button class="tool active" data-module="skisse" onclick="setModule('skisse')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 21c3-1 5-3 7-7 1.5-3 3-6 5-7 1.5-.7 3 .8 2 2-1 1.5-4 2.5-7 4-4 2-6 4-7 8z"/></svg><span class="tip">Skisse</span></button>
+<button class="tool" data-module="kart" onclick="setModule('kart')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg><span class="tip">Kart</span></button>
+</div>
 <div id="toolrail">
 <button class="tool active" data-tool="select" onclick="setTool('select')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l14 7-6 2-2 6L5 3z"/></svg><span class="kbd">V</span><span class="tip">Vel og flytt <kbd>V</kbd></span></button>
 <div class="tool-sep"></div>
@@ -402,7 +422,18 @@ body.pre-start #topbar, body.pre-start #workspace{display:none}
 <button class="prop-btn danger" onclick="deleteSelection()" style="margin-top:6px"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3.5,5 12.5,5"/><path d="M6 5V3.5h4V5"/><rect x="5" y="5" width="6" height="8.5" rx="1"/></svg>Slett (Del)</button>
 </div>
 </div></div>
-</div></div>
+</div>
+<div id="mapArea">
+<div id="mapSidebar">
+<div class="ms-title">Kartgrunnlag</div>
+<button class="map-sidebar-btn" onclick="startExtentSelect()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="11" height="11" rx="1" stroke-dasharray="2.2 1.6"/></svg>Vel utsnitt</button>
+<button class="map-sidebar-btn" onclick="document.getElementById('mapImportFile').click()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0L5 7m3 3l3-3M2.5 11v2a1 1 0 001 1h9a1 1 0 001-1v-2"/></svg>Importer eige kartgrunnlag</button>
+<input type="file" id="mapImportFile" accept="image/*" style="display:none" onchange="handleMapImportFile(event)">
+<div id="extentInfo" style="display:none;margin-top:6px"></div>
+</div>
+<div id="mapHost"></div>
+</div>
+</div>
 <div id="statusbar">
 <div class="status-item"><span class="label">x</span><span class="val" id="stX">0</span><span class="label">mm</span></div>
 <div class="status-item"><span class="label">y</span><span class="val" id="stY">0</span><span class="label">mm</span></div>
@@ -421,6 +452,22 @@ body.pre-start #topbar, body.pre-start #workspace{display:none}
 <div class="status-divider"></div>
 <div class="status-item"><span class="label" id="elCount">0 element</span></div>
 <div class="zoom-control"><button class="zoom-btn" onclick="zoomBy(0.8)">−</button><span class="zoom-val" id="zoomVal">100%</span><button class="zoom-btn" onclick="zoomBy(1.25)">+</button><button class="zoom-btn" onclick="zoomFit()" title="Tilpass">⊡</button></div>
+</div>
+<div id="mapBottomBar">
+<span class="mb-lbl">Grunnkart</span>
+<div id="mapBaseChips">
+<div class="snap-chip on" data-base="topo" onclick="setMapBase('topo')">Topografisk</div>
+<div class="snap-chip" data-base="graatone" onclick="setMapBase('graatone')">Gråtone</div>
+</div>
+<div class="status-divider"></div>
+<span class="mb-lbl">Lag</span>
+<div id="mapOverlayChips">
+<div class="snap-chip" data-overlay="bygg" onclick="toggleMapOverlay('bygg')">Bygningar</div>
+<div class="snap-chip" data-overlay="eigedom" onclick="toggleMapOverlay('eigedom')">Eigedomsgrenser</div>
+<div class="snap-chip" data-overlay="terreng" onclick="toggleMapOverlay('terreng')">Terrengskygge</div>
+</div>
+<div class="status-spacer"></div>
+<span class="mb-lbl" style="color:var(--text2)">© Kartverket</span>
 </div>
 <div class="flyout" id="shapeFlyout">
 <div class="flyout-item" onclick="setTool('rect');closeFlyouts()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="6" width="16" height="12" rx="1"/></svg><span class="fi-name">Rektangel</span><span class="fi-hint">R</span></div>
@@ -2885,6 +2932,130 @@ async function saveDrawing(){
   const {data}=await sb.auth.getSession();
   if(data.session) await afterLogin(data.session.user);
 })();
+
+// ═══════════════════ KART-MODUL (stadbundne byggeprosjekt) ═══════════════════
+// Gratis, opne norske kartkjelder — verifisert direkte mot kvar teneste sitt
+// GetCapabilities-dokument 30. sept. 2026 (sjå CLAUDE.md for kjeldeliste og
+// grunngjeving/avgrensingar, m.a. kvifor "Norge i bilder" flyfoto IKKJE er
+// med enno — den krev eit tidsavgrensa token, uforeinleg med ei statisk fil
+// utan backend-proxy).
+//
+// Basiskart: Kartverket sin WMTS-cache (cache.kartverket.no) — merk at
+// TileMatrix-nivåa er NULLPOLSTRA tosifra strengar ("00".."18"), ikkje rein
+// z-heiltal — difor ein eigen L.TileLayer-subklasse som polstrar sjølv.
+const PaddedWMTS = L.TileLayer.extend({
+  getTileUrl: function(coords){
+    const z = String(coords.z).padStart(2,'0');
+    return L.Util.template(this._url, L.extend({x:coords.x, y:coords.y, z}, this.options));
+  }
+});
+function kartverketWmts(layerName){
+  return new PaddedWMTS('https://cache.kartverket.no/v1/wmts/1.0.0/'+layerName+'/default/webmercator/{z}/{y}/{x}.png',
+    {maxZoom:18, attribution:'&copy; <a href="https://www.kartverket.no/">Kartverket</a>'});
+}
+function geonorgeWms(service,layerName,extra){
+  return L.tileLayer.wms('https://wms.geonorge.no/skwms1/wms.'+service,
+    Object.assign({layers:layerName, format:'image/png', transparent:true, maxZoom:20,
+      attribution:'&copy; <a href="https://www.geonorge.no/">Geonorge</a>/Kartverket'}, extra||{}));
+}
+
+let mapModule=null, currentModule='skisse';
+let extentSelecting=false, extentStart=null, extentRectLayer=null;
+
+function setModule(mod){
+  currentModule=mod;
+  document.querySelectorAll('#moduleRail .tool').forEach(b=>b.classList.toggle('active', b.dataset.module===mod));
+  const sketch = mod==='skisse';
+  document.getElementById('toolrail').style.display = sketch?'':'none';
+  document.getElementById('canvas-host').style.display = sketch?'':'none';
+  document.getElementById('statusbar').style.display = sketch?'':'none';
+  document.getElementById('mapArea').style.display = sketch?'none':'flex';
+  document.getElementById('mapBottomBar').style.display = sketch?'none':'flex';
+  if(!sketch) initMap(); else resizeCanvases();
+}
+
+function initMap(){
+  if(mapModule){ setTimeout(()=>mapModule.map.invalidateSize(),0); return; }
+  const map=L.map('mapHost',{zoomControl:true}).setView([64.5,11],5); // fallback: Noreg-oversikt
+  const topo=kartverketWmts('topo').addTo(map);
+  const graatone=kartverketWmts('topograatone');
+  const bygg=geonorgeWms('inspire_bu','BU.Building');
+  const eigedom=geonorgeWms('matrikkel','eiendomsgrense');
+  const terreng=geonorgeWms('terrengmodell','relieff');
+  mapModule={map, base:{topo,graatone}, overlays:{bygg,eigedom,terreng}, activeBase:'topo', customOverlay:null, siteExtent:null};
+  initExtentTool(map);
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      pos=>map.setView([pos.coords.latitude,pos.coords.longitude],16),
+      ()=>showToast('Fann ikkje posisjonen din — viser Noreg-oversikt. Zoom/panorer manuelt.'),
+      {timeout:8000}
+    );
+  } else {
+    showToast('Nettlesaren støttar ikkje posisjonsdeling — viser Noreg-oversikt.');
+  }
+}
+function setMapBase(name){
+  if(!mapModule) return;
+  for(const [k,layer] of Object.entries(mapModule.base)){
+    if(k===name){ if(!mapModule.map.hasLayer(layer)) layer.addTo(mapModule.map); }
+    else if(mapModule.map.hasLayer(layer)) mapModule.map.removeLayer(layer);
+  }
+  mapModule.activeBase=name;
+  document.querySelectorAll('#mapBaseChips .snap-chip').forEach(c=>c.classList.toggle('on', c.dataset.base===name));
+}
+function toggleMapOverlay(name){
+  if(!mapModule) return;
+  const layer=mapModule.overlays[name];
+  const chip=document.querySelector('#mapOverlayChips [data-overlay="'+name+'"]');
+  if(mapModule.map.hasLayer(layer)){ mapModule.map.removeLayer(layer); chip.classList.remove('on'); }
+  else { layer.addTo(mapModule.map); chip.classList.add('on'); }
+}
+
+// ─── Vel utsnitt: klikk-dra ei rute på kartet ───
+function startExtentSelect(){
+  if(!mapModule) return;
+  extentSelecting=true;
+  mapModule.map.dragging.disable();
+  mapModule.map.getContainer().style.cursor='crosshair';
+  showToast('Klikk og dra på kartet for å velje utsnitt');
+}
+function initExtentTool(map){
+  map.on('mousedown', e=>{
+    if(!extentSelecting) return;
+    extentStart=e.latlng;
+    if(extentRectLayer) map.removeLayer(extentRectLayer);
+    extentRectLayer=L.rectangle([extentStart,extentStart],{color:'#14181d',weight:2,fillOpacity:.08}).addTo(map);
+    map.on('mousemove', onExtentMove);
+  });
+  map.on('mouseup', e=>{
+    if(!extentSelecting||!extentStart) return;
+    map.off('mousemove', onExtentMove);
+    const bounds=L.latLngBounds(extentStart, e.latlng);
+    mapModule.siteExtent=bounds;
+    extentSelecting=false; extentStart=null;
+    map.dragging.enable(); map.getContainer().style.cursor='';
+    const c=bounds.getCenter();
+    const info=document.getElementById('extentInfo');
+    info.style.display='block';
+    info.textContent='Utsnitt: '+c.lat.toFixed(5)+', '+c.lng.toFixed(5);
+    showToast('Utsnitt valt');
+  });
+}
+function onExtentMove(e){ if(extentRectLayer&&extentStart) extentRectLayer.setBounds(L.latLngBounds(extentStart,e.latlng)); }
+
+// ─── Importer eige kartgrunnlag: rasterbilete lagt over gjeldande synsfelt ───
+function handleMapImportFile(e){
+  const file=e.target.files[0]; if(!file||!mapModule) return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    const bounds=mapModule.map.getBounds();
+    if(mapModule.customOverlay) mapModule.map.removeLayer(mapModule.customOverlay);
+    mapModule.customOverlay=L.imageOverlay(ev.target.result, bounds, {opacity:.75}).addTo(mapModule.map);
+    showToast('Kartgrunnlag lagt inn over gjeldande synsfelt — zoom/panorer FØR import for rett plassering');
+  };
+  r.readAsDataURL(file);
+  e.target.value='';
+}
 
 // ═══════════════════ INIT ═══════════════════
 document.getElementById('scaleSelect').addEventListener('change',e=>{scaleRatio=parseInt(e.target.value);render();});
