@@ -174,13 +174,31 @@ byggjer terrenget.
   server-til-server). Terrengflata sin breidd/djupn er rekna i verkelege
   meter (haversine-formel), høgd relativt til lågaste punkt i utsnittet.
   Fargelagt etter høgd (grønn→gul→brun→kvit).
-- **INGEN bygningsvolum enno.** Research synte ingen stabil, produksjons-
-  klar kjelde for ekte bygningsFOTAVTRYKK (polygon, ikkje berre punkt)
-  med stadfesta CORS innanfor rimeleg tidsbruk — `wms.matrikkel` har
-  ikkje bygningslag, og den einaste OGC API Features-kandidaten for
-  bygningsdata var uttrykkeleg ein "test"-server
-  (`ogcapitest.kartverket.no`). Heller enn å byggje på eit usikkert
-  fundament vart bygningsvolum utsett.
+- **Bygningsvolum (lagt til same dag, etter innspel om OSM)**: ekte
+  fotavtrykk-polygon ekstrudert til 3D-boksar, henta frå OpenStreetMap sitt
+  Overpass API (`way["building"]` i utsnittet, `out geom;` — koordinatar
+  ligg direkte i responsen, ingen separat node-oppslag naudsynt). Norske
+  OSM-bygningar er i all hovudsak importerte frå Kartverket sitt eige
+  matrikkel-datasett (sjå Wikipedia: "Norway Building Heights Import"/
+  "Import/Catalogue/Norway Building Import") — difor same kvalitet/kjelde
+  som Kartverket sjølv, berre eksponert som brukbar vektor-geometri via
+  eit CORS-ope API, i motsetnad til `wms.matrikkel` (ingen bygningslag)
+  og `ogcapitest.kartverket.no` (uttrykkeleg ein ustabil testserver).
+  Høgd: `height`-tag → direkte meter; elles `building:levels`×3 m; elles
+  ein fallback på 6 m (mange bygningar manglar enno høgd-/etasjetagging).
+  Grunnhøgd henta frå næraste punkt i det alt henta høgderutenettet, så
+  bygningane står plausibelt oppå terrenget. **Berre `way`-element** (ikkje
+  `relation`, dvs. fleirdels-/hòl-bygningar) — dekkjer størstedelen av
+  vanlege bygningar, men hoppar over kompleks bygningskompleks-geometri.
+  Grense på 400 bygningar per generering (yting).
+  - **VIKTIG driftserfaring**: det offentlege Overpass API-et (både
+    `overpass-api.de` og spegelen `overpass.kumi.systems`) kan under høg
+    last/rate-avgrensing HENGE i over eit minutt utan å svare i det heile
+    — stadfesta direkte under eiga testing. Difor har både høgdedata- og
+    bygningskalla ein eksplisitt klient-side timeout (`AbortController`,
+    15s per forsøk, med automatisk fallback til spegelen for bygningar).
+    Feilar begge/tidsavbryt, vert berre terrenget ståande att med ein
+    klår feilmelding — aldri ei uendeleg "Hentar…"-hengetilstand.
 - **INGEN ekte kartteksur draped på terrenget enno** (t.d. det fargerike
   topografiske grunnkartet du ser i Kart-modulen, projisert ned på
   3D-flata) — ville krevd stadfesta bilete-CORS frå Kartverket sin
@@ -199,15 +217,18 @@ byggjer terrenget.
 
 **Testa** 30. sept. gjennom heile den ekte UI-flyten (ikkje berre JS-kall):
 "Vel utsnitt" → rektangel dregen over Oslo sentrum → "Generer 3D-modell"
-dukka opp → klikka → terreng generert og navigerbart, stadfesta med
-skjermbilete og ein direkte `fetch()`-test av høgdedata-API-et sin CORS
-frå nettlesarkonsollen. Ingen konsollfeil.
+dukka opp → klikka → terreng OG bygningar generert og navigerbart,
+stadfesta med skjermbilete (m.a. eit bykvartal nær Oslo City med
+korrekt relativ plassering/høgd) og direkte `fetch()`-testar av begge
+API-a sin CORS frå nettlesarkonsollen. Overpass sitt hovudendepunkt
+504-a undervegs i testinga — spegel-fallback overtok korrekt, stadfesta
+via toast-meldinga. Ingen uventa/uhandterte konsollfeil.
 
 **Naturlege neste steg** (ikkje uttrykt som prioriterte enno): ekte
-bygningsvolum (krev å finne/stadfeste ein brukbar vektor-bygningskjelde),
 kartteksur på terrenget (krev å stadfeste flis-CORS, evt. via ein
 eigen liten proxy dersom Kartverket ikkje tillèt direkte canvas-bruk),
-og å lagre generert 3D-terreng saman med prosjektet i Supabase.
+`relation`-bygningar (fleirdels-/hòl-geometri), og å lagre generert
+3D-terreng/bygningar saman med prosjektet i Supabase.
 
 ## Mappestruktur / filer
 

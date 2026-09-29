@@ -3104,7 +3104,7 @@ function ensureThreeDScene(){
   }
   window.addEventListener('resize', resize);
   (function loop(){ requestAnimationFrame(loop); controls.update(); renderer.render(scene,camera); })();
-  threeD={renderer,scene,camera,controls,host,resize,terrainMesh:null};
+  threeD={renderer,scene,camera,controls,host,resize,terrainMesh:null,buildingsGroup:null};
   return threeD;
 }
 function haversineM(lat1,lon1,lat2,lon2){
@@ -3128,7 +3128,9 @@ async function fetchElevationGrid(bounds, gridN){
   for(let start=0; start<pts.length; start+=BATCH){
     const chunk=pts.slice(start,start+BATCH);
     const url='https://ws.geonorge.no/hoydedata/v1/punkt?koordsys=4258&punkter='+encodeURIComponent(JSON.stringify(chunk));
-    const res=await fetch(url);
+    let res;
+    try{ res=await fetchWithTimeout(url,{},15000); }
+    catch(err){ throw err.name==='AbortError' ? new Error('tidsavbrot (15s)') : err; }
     if(!res.ok) throw new Error('Høgdedata-API svarte '+res.status);
     const data=await res.json();
     data.punkter.forEach((p,k)=>{ elevations[start+k] = (typeof p.z==='number') ? p.z : 0; });
@@ -3177,6 +3179,100 @@ async function build3DTerrain(bounds){
   t.controls.target.set(0,0,0);
   t.controls.update();
   showToast((gridN*gridN)+' høgdepunkt henta — terreng '+minZ.toFixed(0)+'–'+maxZ.toFixed(0)+' moh., '+Math.round(widthM)+'×'+Math.round(depthM)+' m');
+
+  // ─── Bygningar frå OpenStreetMap (Overpass API) ───
+  // Norske OSM-bygningar er i all hovudsak importerte frå Kartverket sitt
+  // eige matrikkel-datasett (sjå CLAUDE.md) — ekte fotavtrykk-polygon, ikkje
+  // berre punkt, med height/building:levels-tagging på delar av bygningane.
+  // Terrenget vert ikkje broten av manglande bygningsdata: feilar Overpass,
+  // vert berre terrenget ståande att.
+  if(t.buildingsGroup){ t.scene.remove(t.buildingsGroup); disposeGroup(t.buildingsGroup); t.buildingsGroup=null; }
+  try{
+    showToast('Hentar bygningar frå OpenStreetMap…');
+    const osmElements=await fetchOsmBuildings(bounds);
+    const {group,count}=buildOsmBuildingsGroup(osmElements, centerLat, centerLon, elevations, gridN, sw, ne, minZ);
+    t.scene.add(group);
+    t.buildingsGroup=group;
+    showToast(count+' bygningar henta frå OpenStreetMap'+(count>=400?' (grensa ved 400)':''));
+  }catch(err){
+    showToast('Fann ikkje bygningsdata frå OSM ('+err.message+') — viser berre terreng');
+  }
+}
+function disposeGroup(group){
+  group.traverse(o=>{ if(o.geometry) o.geometry.dispose(); if(o.material) o.material.dispose(); });
+}
+// To offentlege Overpass-instansar — tette sentrumsområde kan gjere at den
+// fyrste tidsavbryt (504) under høg last, så eit fallback-forsøk mot ein
+// spegel gir merkbart betre pålitelegheit for lite ekstra kompleksitet.
+// VIKTIG: den offentlege tenesta kan i praksis HENGE (ikkje svare i det
+// heile, verken med feil eller resultat) i periodar med høg last/rate-
+// avgrensing — stadfesta under eiga testing (>80s utan svar). Difor ein
+// eksplisitt klient-side timeout (AbortController) per endepunkt, elles
+// kan brukaren bli sitjande fast på "Hentar bygningar…" på ubestemt tid.
+const OVERPASS_ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
+async function fetchWithTimeout(url,opts,ms){
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(),ms);
+  try{ return await fetch(url, Object.assign({}, opts, {signal:ctrl.signal})); }
+  finally{ clearTimeout(timer); }
+}
+async function fetchOsmBuildings(bounds){
+  const sw=bounds.getSouthWest(), ne=bounds.getNorthEast();
+  const q='[out:json][timeout:20];(way["building"]('+sw.lat+','+sw.lng+','+ne.lat+','+ne.lng+'););out geom;';
+  let lastErr;
+  for(const endpoint of OVERPASS_ENDPOINTS){
+    try{
+      const res=await fetchWithTimeout(endpoint, {method:'POST', body:q}, 15000);
+      if(!res.ok){ lastErr=new Error('Overpass svarte '+res.status); continue; }
+      const data=await res.json();
+      return data.elements||[];
+    }catch(err){ lastErr = err.name==='AbortError' ? new Error('tidsavbrot (15s)') : err; }
+  }
+  throw lastErr||new Error('ukjend feil');
+}
+function osmBuildingHeight(tags){
+  if(tags.height){ const m=parseFloat(tags.height); if(!isNaN(m)&&m>0) return m; }
+  if(tags['building:levels']){ const l=parseFloat(tags['building:levels']); if(!isNaN(l)&&l>0) return l*3; }
+  return 6; // fallback — ingen høgd-/etasjetagging på denne bygningen
+}
+// Finn høgd frå næraste punkt i det alt henta høgderutenettet (same rutenett som terrenget).
+function nearestGridElevation(lat,lon,elevGrid,gridN,sw,ne){
+  let i=Math.round((ne.lat-lat)/(ne.lat-sw.lat)*(gridN-1));
+  let j=Math.round((lon-sw.lng)/(ne.lng-sw.lng)*(gridN-1));
+  i=Math.max(0,Math.min(gridN-1,i)); j=Math.max(0,Math.min(gridN-1,j));
+  return elevGrid[i*gridN+j];
+}
+function buildOsmBuildingsGroup(osmElements, centerLat, centerLon, elevGrid, gridN, sw, ne, minZ){
+  const mPerLat=111320, mPerLon=111320*Math.cos(centerLat*Math.PI/180);
+  const group=new THREE.Group();
+  const mat=new THREE.MeshStandardMaterial({color:0xb08d63, roughness:0.85});
+  let count=0;
+  for(const el of osmElements){
+    if(count>=400) break;
+    if(el.type!=='way' || !el.geometry || el.geometry.length<3) continue;
+    // Same koordinatkonvensjon som terrenget: shape.x→world X, shape.y→world Z=-shape.y
+    // etter rotateX(-90°) — sjå CLAUDE.md for utleiing.
+    const pts=el.geometry.map(p=>new THREE.Vector2(
+      (p.lon-centerLon)*mPerLon,
+      (p.lat-centerLat)*mPerLat
+    ));
+    if(pts.length>1 && pts[0].distanceTo(pts[pts.length-1])<0.05) pts.pop();
+    if(pts.length<3) continue;
+    let shape;
+    try{ shape=new THREE.Shape(pts); }catch(e){ continue; }
+    const h=osmBuildingHeight(el.tags||{});
+    let extrude;
+    try{ extrude=new THREE.ExtrudeGeometry(shape,{depth:h,bevelEnabled:false}); }catch(e){ continue; }
+    extrude.rotateX(-Math.PI/2);
+    let cLat=0,cLon=0; for(const g of el.geometry){ cLat+=g.lat; cLon+=g.lon; }
+    cLat/=el.geometry.length; cLon/=el.geometry.length;
+    const base=nearestGridElevation(cLat,cLon,elevGrid,gridN,sw,ne)-minZ;
+    const mesh=new THREE.Mesh(extrude, mat);
+    mesh.position.y=base;
+    group.add(mesh);
+    count++;
+  }
+  return {group,count};
 }
 async function generate3DModel(){
   if(!mapModule || !mapModule.siteExtent){ showToast('Vel eit utsnitt på kartet fyrst'); return; }
