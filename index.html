@@ -12,6 +12,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 :root{
@@ -121,6 +123,12 @@ body.pre-start #topbar, body.pre-start #workspace{display:none}
 #mapBottomBar .mb-lbl{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);white-space:nowrap}
 #mapBottomBar .status-divider{width:1px;height:20px;background:var(--border);flex-shrink:0}
 #extentInfo{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);white-space:nowrap}
+
+/* ─── 3D-MODUL ─── */
+#threeDArea{flex:1;display:none;overflow:hidden;position:relative}
+#threeDHost{flex:1;position:relative;background:#dcd9d2}
+#threeDHost canvas{display:block}
+#threeDHint{position:absolute;left:14px;bottom:14px;background:rgba(20,24,29,.78);color:#fff;font-family:'Inter',sans-serif;font-size:12px;padding:7px 12px;border-radius:7px;pointer-events:none;z-index:5}
 #statusbar{height:34px;background:var(--surface);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 14px;gap:14px;flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);z-index:20}
 .status-item{display:flex;align-items:center;gap:6px}
 .status-item .label{color:var(--text3)}
@@ -346,6 +354,7 @@ body.pre-start #topbar, body.pre-start #workspace{display:none}
 <div id="moduleRail">
 <button class="tool active" data-module="skisse" onclick="setModule('skisse')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 21c3-1 5-3 7-7 1.5-3 3-6 5-7 1.5-.7 3 .8 2 2-1 1.5-4 2.5-7 4-4 2-6 4-7 8z"/></svg><span class="tip">Skisse</span></button>
 <button class="tool" data-module="kart" onclick="setModule('kart')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg><span class="tip">Kart</span></button>
+<button class="tool" data-module="3d" onclick="setModule('3d')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 3v18M4 7.5l8 4.5 8-4.5"/></svg><span class="tip">3D</span></button>
 </div>
 <div id="toolrail">
 <button class="tool active" data-tool="select" onclick="setTool('select')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l14 7-6 2-2 6L5 3z"/></svg><span class="kbd">V</span><span class="tip">Vel og flytt <kbd>V</kbd></span></button>
@@ -430,8 +439,12 @@ body.pre-start #topbar, body.pre-start #workspace{display:none}
 <button class="map-sidebar-btn" onclick="document.getElementById('mapImportFile').click()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0L5 7m3 3l3-3M2.5 11v2a1 1 0 001 1h9a1 1 0 001-1v-2"/></svg>Importer eige kartgrunnlag</button>
 <input type="file" id="mapImportFile" accept="image/*" style="display:none" onchange="handleMapImportFile(event)">
 <div id="extentInfo" style="display:none;margin-top:6px"></div>
+<button class="map-sidebar-btn" id="gen3dBtn" style="display:none;margin-top:6px" onclick="generate3DModel()"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5l6 3.3v6.4L8 14.5l-6-3.3V4.8L8 1.5z"/><path d="M8 1.5v13M2 4.8L8 8l6-3.2"/></svg>Generer 3D-modell</button>
 </div>
 <div id="mapHost"></div>
+</div>
+<div id="threeDArea">
+<div id="threeDHost"><div id="threeDHint">Dra = roter · scroll = zoom · høgreklikk-dra = panorer</div></div>
 </div>
 </div>
 <div id="statusbar">
@@ -2965,13 +2978,16 @@ let extentSelecting=false, extentStart=null, extentRectLayer=null;
 function setModule(mod){
   currentModule=mod;
   document.querySelectorAll('#moduleRail .tool').forEach(b=>b.classList.toggle('active', b.dataset.module===mod));
-  const sketch = mod==='skisse';
+  const sketch=mod==='skisse', kart=mod==='kart', d3=mod==='3d';
   document.getElementById('toolrail').style.display = sketch?'':'none';
   document.getElementById('canvas-host').style.display = sketch?'':'none';
   document.getElementById('statusbar').style.display = sketch?'':'none';
-  document.getElementById('mapArea').style.display = sketch?'none':'flex';
-  document.getElementById('mapBottomBar').style.display = sketch?'none':'flex';
-  if(!sketch) initMap(); else resizeCanvases();
+  document.getElementById('mapArea').style.display = kart?'flex':'none';
+  document.getElementById('mapBottomBar').style.display = kart?'flex':'none';
+  document.getElementById('threeDArea').style.display = d3?'flex':'none';
+  if(sketch) resizeCanvases();
+  else if(kart) initMap();
+  else if(d3){ ensureThreeDScene(); setTimeout(()=>threeD.resize(),0); }
 }
 
 function initMap(){
@@ -3038,6 +3054,7 @@ function initExtentTool(map){
     const info=document.getElementById('extentInfo');
     info.style.display='block';
     info.textContent='Utsnitt: '+c.lat.toFixed(5)+', '+c.lng.toFixed(5);
+    document.getElementById('gen3dBtn').style.display='flex';
     showToast('Utsnitt valt');
   });
 }
@@ -3055,6 +3072,116 @@ function handleMapImportFile(e){
   };
   r.readAsDataURL(file);
   e.target.value='';
+}
+
+// ═══════════════════ 3D-MODUL ═══════════════════
+// Terrengnett generert frå EKTE høgdedata (Kartverket sitt opne, tokenfrie
+// punkthøgde-API, ws.geonorge.no/hoydedata — støttar inntil 50 punkt per
+// kall via `punkter`-parameteren, så eit heile rutenett hentar vi med berre
+// nokre få kall). Fargelagt etter høgd (grønn→gul→brun→kvit) sidan ekte
+// kartteksturar over terrenget krev stabil bilete-CORS frå Kartverket sin
+// flisserver som ikkje er stadfesta enno — sjå CLAUDE.md for grunngjeving
+// og kva som står att (bygningsvolum, ekte kartteksturar).
+let threeD=null;
+
+function ensureThreeDScene(){
+  if(threeD) return threeD;
+  const host=document.getElementById('threeDHost');
+  const renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(window.devicePixelRatio||1);
+  host.insertBefore(renderer.domElement, host.firstChild);
+  const scene=new THREE.Scene();
+  scene.background=new THREE.Color(0xdcd9d2);
+  const camera=new THREE.PerspectiveCamera(50, 1, 1, 50000);
+  const controls=new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping=true; controls.dampingFactor=0.08;
+  scene.add(new THREE.HemisphereLight(0xffffff,0x55524a,1.1));
+  const sun=new THREE.DirectionalLight(0xffffff,0.7); sun.position.set(1,1.6,0.8); scene.add(sun);
+  function resize(){
+    const w=host.clientWidth, h=host.clientHeight;
+    if(w===0||h===0) return;
+    renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+  (function loop(){ requestAnimationFrame(loop); controls.update(); renderer.render(scene,camera); })();
+  threeD={renderer,scene,camera,controls,host,resize,terrainMesh:null};
+  return threeD;
+}
+function haversineM(lat1,lon1,lat2,lon2){
+  const R=6371000, toRad=d=>d*Math.PI/180;
+  const dLat=toRad(lat2-lat1), dLon=toRad(lon2-lon1);
+  const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+async function fetchElevationGrid(bounds, gridN){
+  const sw=bounds.getSouthWest(), ne=bounds.getNorthEast();
+  const pts=[];
+  for(let i=0;i<gridN;i++){
+    const lat = ne.lat + (sw.lat-ne.lat)*(i/(gridN-1)); // rad 0 = nord
+    for(let j=0;j<gridN;j++){
+      const lon = sw.lng + (ne.lng-sw.lng)*(j/(gridN-1)); // kolonne 0 = vest
+      pts.push([lon,lat]);
+    }
+  }
+  const elevations=new Array(pts.length).fill(0);
+  const BATCH=50;
+  for(let start=0; start<pts.length; start+=BATCH){
+    const chunk=pts.slice(start,start+BATCH);
+    const url='https://ws.geonorge.no/hoydedata/v1/punkt?koordsys=4258&punkter='+encodeURIComponent(JSON.stringify(chunk));
+    const res=await fetch(url);
+    if(!res.ok) throw new Error('Høgdedata-API svarte '+res.status);
+    const data=await res.json();
+    data.punkter.forEach((p,k)=>{ elevations[start+k] = (typeof p.z==='number') ? p.z : 0; });
+  }
+  return elevations;
+}
+async function build3DTerrain(bounds){
+  const t=ensureThreeDScene();
+  t.resize();
+  showToast('Hentar høgdedata for utsnittet…');
+  const gridN=20;
+  let elevations;
+  try{ elevations=await fetchElevationGrid(bounds,gridN); }
+  catch(err){ showToast('Klarte ikkje å hente høgdedata: '+err.message); return; }
+
+  const minZ=Math.min(...elevations), maxZ=Math.max(...elevations);
+  const sw=bounds.getSouthWest(), ne=bounds.getNorthEast();
+  const centerLat=(sw.lat+ne.lat)/2, centerLon=(sw.lng+ne.lng)/2;
+  const widthM=Math.max(1,haversineM(centerLat,sw.lng,centerLat,ne.lng));
+  const depthM=Math.max(1,haversineM(sw.lat,centerLon,ne.lat,centerLon));
+
+  if(t.terrainMesh){ t.scene.remove(t.terrainMesh); t.terrainMesh.geometry.dispose(); t.terrainMesh.material.dispose(); }
+
+  const geo=new THREE.PlaneGeometry(widthM, depthM, gridN-1, gridN-1);
+  const pos=geo.attributes.position;
+  const grad=[[0.20,0.45,0.25],[0.62,0.58,0.28],[0.50,0.36,0.26],[0.88,0.88,0.88]]; // grønn→gul→brun→kvit
+  const colors=[];
+  for(let i=0;i<pos.count;i++){
+    const z=elevations[i]-minZ;
+    pos.setZ(i, z);
+    const t01 = maxZ>minZ ? (elevations[i]-minZ)/(maxZ-minZ) : 0;
+    const segs=grad.length-1, f=t01*segs, si=Math.min(segs-1,Math.max(0,Math.floor(f))), sf=f-si;
+    const c0=grad[si], c1=grad[si+1];
+    colors.push(c0[0]+(c1[0]-c0[0])*sf, c0[1]+(c1[1]-c0[1])*sf, c0[2]+(c1[2]-c0[2])*sf);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors,3));
+  geo.rotateX(-Math.PI/2);
+  geo.computeVertexNormals();
+  const mat=new THREE.MeshStandardMaterial({vertexColors:true, side:THREE.DoubleSide, roughness:0.9});
+  const mesh=new THREE.Mesh(geo, mat);
+  t.scene.add(mesh);
+  t.terrainMesh=mesh;
+
+  const maxDim=Math.max(widthM,depthM);
+  t.camera.position.set(maxDim*0.55, Math.max(maxDim*0.5,(maxZ-minZ)*2.5+40), maxDim*0.55);
+  t.controls.target.set(0,0,0);
+  t.controls.update();
+  showToast((gridN*gridN)+' høgdepunkt henta — terreng '+minZ.toFixed(0)+'–'+maxZ.toFixed(0)+' moh., '+Math.round(widthM)+'×'+Math.round(depthM)+' m');
+}
+async function generate3DModel(){
+  if(!mapModule || !mapModule.siteExtent){ showToast('Vel eit utsnitt på kartet fyrst'); return; }
+  setModule('3d');
+  await build3DTerrain(mapModule.siteExtent);
 }
 
 // ═══════════════════ INIT ═══════════════════

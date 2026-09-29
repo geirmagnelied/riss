@@ -157,6 +157,58 @@ brukar-token, og evt. å la "Vel utsnitt" faktisk styre kva som vert
 lasta/vist (i dag er det berre eit valt punkt/område, ikkje kopla til
 noko anna enno).
 
+## 3D-modul (lagt til 30. sept. 2026)
+
+Tredje modul-rail-knapp **3D** (kube-ikon). Ein knapp **"Generer 3D-
+modell"** dukkar opp i kart-sidebaren under "Vel utsnitt" med det same
+`mapModule.siteExtent` er sett — akkurat den utløysemekanismen som vart
+bedt om. Klikk på han (`generate3DModel()`) byter til 3D-modulen og
+byggjer terrenget.
+
+**Kva 3D-modellen er i v1 — og bevisst IKKJE er:**
+- **Terreng**: ekte høgdedata, ikkje syntetisk. Hentar eit 20×20-rutenett
+  (400 punkt) frå Kartverket sitt opne, tokenfrie punkthøgde-API
+  (`ws.geonorge.no/hoydedata/v1/punkt`, `koordsys=4258` lat/lon, batcha
+  50 punkt per kall via `punkter`-parameteren — stadfesta i praksis at
+  tenesta støttar CORS frå nettlesar-`fetch()`, ikkje berre frå
+  server-til-server). Terrengflata sin breidd/djupn er rekna i verkelege
+  meter (haversine-formel), høgd relativt til lågaste punkt i utsnittet.
+  Fargelagt etter høgd (grønn→gul→brun→kvit).
+- **INGEN bygningsvolum enno.** Research synte ingen stabil, produksjons-
+  klar kjelde for ekte bygningsFOTAVTRYKK (polygon, ikkje berre punkt)
+  med stadfesta CORS innanfor rimeleg tidsbruk — `wms.matrikkel` har
+  ikkje bygningslag, og den einaste OGC API Features-kandidaten for
+  bygningsdata var uttrykkeleg ein "test"-server
+  (`ogcapitest.kartverket.no`). Heller enn å byggje på eit usikkert
+  fundament vart bygningsvolum utsett.
+- **INGEN ekte kartteksur draped på terrenget enno** (t.d. det fargerike
+  topografiske grunnkartet du ser i Kart-modulen, projisert ned på
+  3D-flata) — ville krevd stadfesta bilete-CORS frå Kartverket sin
+  WMTS-flisserver, som IKKJE er verifisert (høgdedata-API-et sin CORS
+  seier ingenting om flisserveren sin CORS). Realistisk neste steg, ikkje
+  eit urealistisk løfte.
+- Navigasjon: `THREE.OrbitControls` (dra=roter, scroll=zoom,
+  høgreklikk-dra=panorer) — CDN, Three.js r128 (siste versjon med
+  UMD-bygg av OrbitControls som global, kompatibelt med Riss sin
+  vanlege `<script>`-utan-modular-arkitektur; nyare Three.js-versjonar
+  krev ES-modular som ville brote alle `onclick="…"`-attributta i heile
+  fila).
+- Kameraet sin standard startvinkel kan i somme tilfelle verte for flat/
+  kantvend (avhengig av utsnittet si form/høgdeforskjell) — brukar må då
+  dra litt for å få eit betre oversyn. Ikkje forfølgt vidare, kosmetisk.
+
+**Testa** 30. sept. gjennom heile den ekte UI-flyten (ikkje berre JS-kall):
+"Vel utsnitt" → rektangel dregen over Oslo sentrum → "Generer 3D-modell"
+dukka opp → klikka → terreng generert og navigerbart, stadfesta med
+skjermbilete og ein direkte `fetch()`-test av høgdedata-API-et sin CORS
+frå nettlesarkonsollen. Ingen konsollfeil.
+
+**Naturlege neste steg** (ikkje uttrykt som prioriterte enno): ekte
+bygningsvolum (krev å finne/stadfeste ein brukbar vektor-bygningskjelde),
+kartteksur på terrenget (krev å stadfeste flis-CORS, evt. via ein
+eigen liten proxy dersom Kartverket ikkje tillèt direkte canvas-bruk),
+og å lagre generert 3D-terreng saman med prosjektet i Supabase.
+
 ## Mappestruktur / filer
 
 ```
