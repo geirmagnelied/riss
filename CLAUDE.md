@@ -228,6 +228,60 @@ filtypane, ikkje berre DXF/SOSI) — same kode, berre to utløysarar.
   med ei verkeleg, kompleks IFC-fil frå ArchiCAD/Revit enno — handlaga
   testfil dekkjer berre det enklaste tilfellet.
 
+## SOSI-import: "Målsetting eksisterande koter" (lagt til 1. okt. 2026)
+
+Ved SOSI-import vert høgdekurver (kotelinjer) automatisk utstyrte med
+kotehøgde-tekst, på eit eige "lag". Konkret:
+
+- `parseSOSI()` plukkar no òg opp attributtet **`KOTEHØYDE`** (akkurat
+  som `ENHET`/`KOORDSYS` frå før) på kvart SOSI-objekt, lagt til som
+  `el.kotehoyde` (tal, meter). Objekt utan dette attributtet er uendra
+  (ingen tekst vert generert for dei — vanlege kurver/grenser/linjer
+  påverkar ikkje).
+- Etter vanleg geometri-import (`placeImportedGeometry`) filtrerer
+  `importSosiFile()` ut kote-objekta og kallar `generateKoteLabels()`,
+  som for kvar kote:
+  - Reknar ut lengda langs linja (`polylineLengthMm()`), og plasserer éin
+    tekst ca. kvar **50 m** (standard) — eller sjeldnare/tettare viss
+    kortare enn intervallet, då berre éin tekst midt på. For linjer
+    lengre enn intervallet vert tekstane fordelte frå halve intervallet
+    og utover (`sampleAlongPolyline()`).
+  - **Brukar vert spurd** (vanleg `prompt()`, same mønster som "Nytt
+    prosjekt") om ønska intervall i meter, FØR generering — berre viss
+    fila faktisk inneheld minst éin KOTEHØYDE-tagga kote (ingen unødig
+    prompt elles).
+  - Tekstformat: **`+<kotehøgde>`** — heiltal viss verdien er (nær) eit
+    heiltal, elles éin desimal (`formatKotehoyde()`), t.d. `+45` eller
+    `+50.5`.
+  - Retning: rotert etter kotelinja sin lokale tangent i innsetjings-
+    punktet, men normalisert til ±90° (`uprightAngle()`) slik at teksten
+    ALDRI vert lesen opp-ned, uansett kva veg kurven er digitalisert.
+  - Lite perpendikulært løft (1 mm) vekk frå sjølve streken, så teksten
+    ikkje ligg heilt oppå kote-linja.
+  - Tagga med `layer:'Målsetting eksisterande koter'` på kvart
+    tekst-element.
+- **Ny element-eigenskap**: `text`-typen støttar no `sizeMm` (ekte
+  mm-storleik som skalerer med målestokk/zoom, via `view.zoom` i
+  `drawElement()`) og `rotation` (radianar) som alternativ til dei gamle
+  `size` (fast skjerm-px, uendra for det vanlege tekstverktøyet) — bakover-
+  kompatibelt, ingen eksisterande tekst-element er påverka. Kotehøgde-
+  tekstane brukar `sizeMm:1.8` nøyaktig som spesifisert. `bbox()` og
+  SVG-eksport oppdatert tilsvarande.
+- **`layer`-eigenskapen er berre ein merkelapp enno** — Riss har ingen
+  eigen lag-panel/synlegheitsstyring/vel-etter-lag-funksjon. Dei nye
+  tekst-elementa vert automatisk lagt til i utvalet saman med resten av
+  SOSI-importen, så dei er umiddelbart synlege/flyttbare/sletbare samla,
+  men "laget" er ikkje noko brukar kan skru av/på endå. Naturleg neste
+  steg om fleire "lag" vert aktuelt (t.d. ei eiga lag-liste i sidebaren).
+- Gjeld **berre SOSI**, ikkje DXF (DXF-filer har ikkje noko tilsvarande
+  standardisert kotehøgde-attributt å lese).
+- **Testa** 1. okt. med handlaga SOSI-testfilar: éi kort kote (< intervall,
+  fekk presis éin midtpunkt-tekst), éi lang kote (80 m, 20 m-intervall →
+  presis 4 tekstar), og éi bratt/skrå kote (stadfesta at rotasjonen følgjer
+  linja si retning visuelt, ikkje opp-ned). Format, storleik og lag-tagging
+  stadfesta via direkte inspeksjon av dei genererte elementa. Ingen
+  konsollfeil.
+
 ## Mappestruktur / filer
 
 ```
