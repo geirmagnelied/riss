@@ -228,59 +228,92 @@ filtypane, ikkje berre DXF/SOSI) — same kode, berre to utløysarar.
   med ei verkeleg, kompleks IFC-fil frå ArchiCAD/Revit enno — handlaga
   testfil dekkjer berre det enklaste tilfellet.
 
-## SOSI-import: "Målsetting eksisterande koter" (lagt til 1. okt. 2026)
+## SOSI-import: kategorisert grafikk + "Målsetting eksisterande koter" (lagt til 1. okt., utvida same dag)
 
-Ved SOSI-import vert høgdekurver (kotelinjer) automatisk utstyrte med
-kotehøgde-tekst, på eit eige "lag". Konkret:
+Ved SOSI-import vert objekt kategoriserte etter type (kote/bygning/veg)
+og fargelagde/stilsette deretter, og høgdekurver får i tillegg automatisk
+kotehøgde-tekst. Konkret:
 
-- `parseSOSI()` plukkar no òg opp attributtet **`KOTEHØYDE`** (akkurat
-  som `ENHET`/`KOORDSYS` frå før) på kvart SOSI-objekt, lagt til som
-  `el.kotehoyde` (tal, meter). Objekt utan dette attributtet er uendra
-  (ingen tekst vert generert for dei — vanlege kurver/grenser/linjer
-  påverkar ikkje).
-- Etter vanleg geometri-import (`placeImportedGeometry`) filtrerer
-  `importSosiFile()` ut kote-objekta og kallar `generateKoteLabels()`,
-  som for kvar kote:
-  - Reknar ut lengda langs linja (`polylineLengthMm()`), og plasserer éin
-    tekst ca. kvar **50 m** (standard) — eller sjeldnare/tettare viss
-    kortare enn intervallet, då berre éin tekst midt på. For linjer
-    lengre enn intervallet vert tekstane fordelte frå halve intervallet
-    og utover (`sampleAlongPolyline()`).
-  - **Brukar vert spurd** (vanleg `prompt()`, same mønster som "Nytt
-    prosjekt") om ønska intervall i meter, FØR generering — berre viss
-    fila faktisk inneheld minst éin KOTEHØYDE-tagga kote (ingen unødig
-    prompt elles).
-  - Tekstformat: **`+<kotehøgde>`** — heiltal viss verdien er (nær) eit
-    heiltal, elles éin desimal (`formatKotehoyde()`), t.d. `+45` eller
-    `+50.5`.
-  - Retning: rotert etter kotelinja sin lokale tangent i innsetjings-
-    punktet, men normalisert til ±90° (`uprightAngle()`) slik at teksten
-    ALDRI vert lesen opp-ned, uansett kva veg kurven er digitalisert.
-  - Lite perpendikulært løft (1 mm) vekk frå sjølve streken, så teksten
-    ikkje ligg heilt oppå kote-linja.
-  - Tagga med `layer:'Målsetting eksisterande koter'` på kvart
-    tekst-element.
-- **Ny element-eigenskap**: `text`-typen støttar no `sizeMm` (ekte
-  mm-storleik som skalerer med målestokk/zoom, via `view.zoom` i
-  `drawElement()`) og `rotation` (radianar) som alternativ til dei gamle
-  `size` (fast skjerm-px, uendra for det vanlege tekstverktøyet) — bakover-
-  kompatibelt, ingen eksisterande tekst-element er påverka. Kotehøgde-
-  tekstane brukar `sizeMm:1.8` nøyaktig som spesifisert. `bbox()` og
-  SVG-eksport oppdatert tilsvarande.
-- **`layer`-eigenskapen er berre ein merkelapp enno** — Riss har ingen
-  eigen lag-panel/synlegheitsstyring/vel-etter-lag-funksjon. Dei nye
-  tekst-elementa vert automatisk lagt til i utvalet saman med resten av
-  SOSI-importen, så dei er umiddelbart synlege/flyttbare/sletbare samla,
-  men "laget" er ikkje noko brukar kan skru av/på endå. Naturleg neste
-  steg om fleire "lag" vert aktuelt (t.d. ei eiga lag-liste i sidebaren).
-- Gjeld **berre SOSI**, ikkje DXF (DXF-filer har ikkje noko tilsvarande
-  standardisert kotehøgde-attributt å lese).
-- **Testa** 1. okt. med handlaga SOSI-testfilar: éi kort kote (< intervall,
-  fekk presis éin midtpunkt-tekst), éi lang kote (80 m, 20 m-intervall →
-  presis 4 tekstar), og éi bratt/skrå kote (stadfesta at rotasjonen følgjer
-  linja si retning visuelt, ikkje opp-ned). Format, storleik og lag-tagging
-  stadfesta via direkte inspeksjon av dei genererte elementa. Ingen
-  konsollfeil.
+**Attributt-utvinning i `parseSOSI()`** — i tillegg til `ENHET`/`KOORDSYS`
+frå før, plukkar han no opp per objekt:
+- **`KOTEHØYDE`** → `el.kotehoyde` (tal, meter). Fråvær = vanleg
+  kurve/grense/linje, upåverka av alt under.
+- **`OBJTYPE`** → `el.objtype` (rå tekststreng, t.d. "Bygning",
+  "VegSenterlinje", "Høydekurve") — brukt til kategorisering.
+
+**Kategorisering** (`importSosiFile()`, FØR `placeImportedGeometry` —
+viktig, sidan styling kan endre `type` frå `'poly'`→`'fill'`, og det må
+skje medan elementa framleis er rå/u-transformerte):
+- **Koter**: `el.kotehoyde!=null`.
+- **Bygningar**: `el.objtype` matchar `/bygning/i` (fangar "Bygning",
+  "Bygningsomriss" m.fl. — ikkje ei uttømmande liste av FKB-typekodar).
+- **Veg/gangveg**: `el.objtype` matchar `/veg/i` OG har IKKJE kotehøyde
+  (unngår dobbelklassifisering i det sjeldne tilfellet eit vegobjekt òg
+  skulle ha høgdeattributt).
+
+**Grafikkval-modal** (`openSosiStyleModal()`, `#sosiStyleModal`) — dukkar
+berre opp viss minst éin kategori er funnen i fila (ingen unødig dialog
+for reine geometri-filer), viser kor mange av kvar ("3 koter, 1 bygning,
+2 veg/gangveg"), og lèt brukar justere FØR import, med Riss sine
+standardverdiar (etter eksplisitt ønske frå Geir Magne, stadfesta via
+AskUserQuestion at tjukkleik-tildelinga nedanfor er korrekt veg, ikkje
+reversert) ferdig utfylte. Knappen **"Importer utan styling"** hoppar
+over all kategorisering (framleis vanleg `IMPORT_COLOR` blå for alt),
+men kotehøgde-TEKSTEN vert likevel generert om fila har koter — sjølve
+tekstgeneratoren er ikkje kopla til stylingvalet, berre fargen/tjukkleiken
+på kotelinja er det (teksten brukar då `IMPORT_COLOR` som fallback-farge):
+- **Koter**: mørk brun (`#5c3a21`), standard **0,18 mm**, kvar 5. **0,9 mm**.
+  "Kvar 5." vert avgjort ved å finne MINSTE avstand mellom dei ulike
+  `kotehoyde`-verdiane i fila (vanlegaste kote-intervallet, t.d. 1 m),
+  og rekne steg frå lågaste verdi — `steg%5===0` ⇒ hovudkote. Krev eit
+  **jamt/regulært** intervall i dataen for å stemme (stadfesta korrekt
+  med jamt fordelte testverdiar 40–46; ei ujamn/uregelmessig testmengd
+  gjev feil klassifisering — forventa åtferd av algoritmen, ikkje feil).
+- **Bygningar**: oransje fyll (`#d4720c`, vanleg i norske kart), 0,35 mm.
+  Lukka bygningsobjekt (`el.closed`) vert gjort om frå `'poly'` til
+  `'fill'` (same element-type/eigenskapar som flaumfyll-verktøyet:
+  `bgColor`/`hatchColor`/`hatch:'solid'`/`opacity:70`) — ekte, redigerbare
+  fyll-element, ikkje spesialteikna.
+- **Veg/gangveg**: lys grå (`#c4c0b8`). Lukka vegareal vert "fylt" på
+  same måte som bygningar (`hatch:'solid'`); opne senterlinjer kan ikkje
+  "hatch"-fyllast (ikkje eit areal) og får berre fargen som strek.
+
+**Kotehøgde-tekst** (uendra logikk frå tidlegare, men no med to viktige
+visuelle rettingar etter tilbakemelding):
+- `generateKoteLabels()` plasserer éin tekst ca. kvar **50 m** (standard,
+  overstyrbar via feltet i grafikkval-modalen — ikkje lenger ein separat
+  `prompt()`), rotert etter kotelinja sin lokale tangent i innsetjings-
+  punktet, normalisert til ±90° (`uprightAngle()`) så teksten ALDRI vert
+  lesen opp-ned.
+- **Midtstilt PÅ streken** (retta 1. okt.): `drawElement()` sitt
+  tekst-tilfelle set no `textAlign='center'`/`textBaseline='middle'` for
+  rotert tekst (før: ingen alignment sett → teksten vart teikna frå
+  innsetjingspunktet og UTOVER mot høgre, ikkje sentrert — difor
+  tilbakemeldinga "ikkje heilt midtstilt"). Den vesle 1 mm perpendikulære
+  lyftinga vekk frå streken er fjerna; teksten sit no direkte sentrert på
+  sjølve kotelinja, med ein bakgrunn (sjå under) som "bryt" streken —
+  standard kartografisk konvensjon for kotetekst.
+- **Bakgrunnsfyll bak teksten** (nytt 1. okt.): ny valfri eigenskap
+  `el.bgFill` (fargestreng) på `text`-element — når sett, teiknar
+  `drawElement()` ein fylt rektangel (målt med `c.measureText()`, litt
+  padding) BAK glyfane, FØR sjølve teksten. Kotehøgde-tekst brukar
+  `bgFill:'#fbfaf7'` (papirfargen) slik at linja bak vert maskert for
+  lesbarheit. Generisk eigenskap — kan brukast av andre tekst-typar
+  seinare om ønskeleg, ikkje kote-spesifikk i koden.
+  Format `+<kotehøgde>`, storleik `sizeMm:1.8`, tagga med
+  `layer:'Målsetting eksisterande koter'` — uendra frå før.
+- **`layer`-eigenskapen er framleis berre ein merkelapp** — ingen eigen
+  lag-panel/synlegheitsstyring i Riss enno. Sjå tidlegare merknad.
+- Gjeld **berre SOSI**, ikkje DXF.
+
+**Testa** 1. okt.: grafikkval-modalen (riktig oppsummering/felt vist/
+skjult etter kva som faktisk finst i fila), kote-tjukkleik-kategorisering
+med både uregelmessig (avslørte den forventa avgrensinga) og regulær
+(40–46, kvar 5. korrekt tjukk) testdata, bygnings- og veg-fyll (visuelt
+stadfesta: oransje/lysgrå areal med `2 valt`-eigenskapspanel synleg,
+provar at det er ekte, redigerbare fyll-element), og tekst-sentrering/
+bakgrunn (visuelt stadfesta: "+40" sentrert og lesbart midt på ei tjukk
+brun linje). Ingen konsollfeil gjennom heile testen.
 
 ## Mappestruktur / filer
 

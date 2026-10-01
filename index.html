@@ -507,6 +507,22 @@ body.pre-start #topbar, body.pre-start #workspace{display:none}
 </div>
 <div class="modal-overlay" id="importModal"><div class="modal"><h2>Importer underlag</h2><p>Legg inn eit bilete/skjermbilete (rasterunderlag), eller ein DXF-, SOSI- eller IFC-fil (vektorgeometri — vert lagt inn som redigerbare, blåfarga element). Du kan òg dra ei DXF/SOSI/IFC-fil rett inn i vindauget. Kalibrer etterpå viss målestokk verkar feil.</p><input type="file" id="importFile" accept="image/*,.dxf,.sos,.sosi,.ifc" style="display:none" onchange="handleImportFile(event)"><div class="modal-actions"><button class="btn-ghost" onclick="closeImport()">Avbryt</button><button class="btn-solid" onclick="document.getElementById('importFile').click()">Vel fil…</button></div></div></div>
 <div class="modal-overlay" id="calibValueModal"><div class="modal"><h2>Kjend lengd</h2><p>Kor lang er strekninga du markerte i verkelegheita?</p><div class="modal-field"><label>Reell lengd</label><input type="text" id="calibValueInput" placeholder="t.d. 5000" autocomplete="off"></div><p style="font-size:12px;color:var(--text3);margin-top:-8px">Oppgi i millimeter. 5 meter = 5000 mm.</p><div class="modal-actions"><button class="btn-ghost" onclick="cancelCalibration()">Avbryt</button><button class="btn-solid" onclick="applyCalibration()">Set målestokk</button></div></div></div>
+<div class="modal-overlay" id="sosiStyleModal"><div class="modal" style="width:460px">
+<h2>Grafikk for import</h2>
+<p>Fila inneheld <b id="sosiStyleSummary"></b>. Vel grafikk, eller importer utan spesiell styling.</p>
+<div class="modal-field" id="sosiKoteFields"><label>Kotehøgde-tekst kvar (m)</label><input type="text" id="sosiKoteInterval" value="50"></div>
+<div style="display:flex;gap:10px" id="sosiKoteColorRow">
+<div class="modal-field" style="flex:1"><label>Kotefarge</label><input type="color" id="sosiKoteColor" value="#5c3a21" style="width:100%;height:38px;border:1px solid var(--border);border-radius:7px;padding:2px"></div>
+<div class="modal-field" style="flex:1"><label>Standard tjukkleik (mm)</label><input type="text" id="sosiKoteWidthStd" value="0.18"></div>
+<div class="modal-field" style="flex:1"><label>Kvar 5. tjukkleik (mm)</label><input type="text" id="sosiKoteWidthMajor" value="0.9"></div>
+</div>
+<div style="display:flex;gap:10px" id="sosiBuildingFields">
+<div class="modal-field" style="flex:1"><label>Bygningsfarge (fyll)</label><input type="color" id="sosiBuildingColor" value="#d4720c" style="width:100%;height:38px;border:1px solid var(--border);border-radius:7px;padding:2px"></div>
+<div class="modal-field" style="flex:1"><label>Tjukkleik (mm)</label><input type="text" id="sosiBuildingWidth" value="0.35"></div>
+</div>
+<div class="modal-field" id="sosiRoadFields"><label>Veg/gangveg-farge</label><input type="color" id="sosiRoadColor" value="#c4c0b8" style="width:100%;height:38px;border:1px solid var(--border);border-radius:7px;padding:2px"></div>
+<div class="modal-actions"><button class="btn-ghost" onclick="skipSosiStyle()">Importer utan styling</button><button class="btn-solid" onclick="confirmSosiStyle()">Importer med denne grafikken</button></div>
+</div></div>
 <div id="color-picker">
   <div class="cp-header">
     <div class="cp-mode-tabs">
@@ -761,8 +777,16 @@ function drawElement(c,el,isPreview){
     const p=w2s(el.x,el.y); c.fillStyle=el.color;
     const pxSize = el.sizeMm ? el.sizeMm*view.zoom : (el.size||16); // sizeMm: ekte mm-storleik som skalerer med målestokk (t.d. kotehøgde-tekst); size: fast skjerm-px (vanleg tekstverktøy)
     c.font=`${pxSize}px 'Inter',sans-serif`;
-    if(el.rotation){ c.save(); c.translate(p.x,p.y); c.rotate(el.rotation); c.fillText(el.text,0,0); c.restore(); }
-    else c.fillText(el.text,p.x,p.y);
+    if(el.rotation!=null){
+      c.save(); c.translate(p.x,p.y); c.rotate(el.rotation);
+      c.textAlign='center'; c.textBaseline='middle'; // midtstilt over/på streken, ikkje venstrejustert frå innsetjingspunktet
+      if(el.bgFill){
+        const tw=c.measureText(el.text).width, h=pxSize*0.9, padX=pxSize*0.25, padY=pxSize*0.15;
+        c.fillStyle=el.bgFill; c.fillRect(-tw/2-padX,-h/2-padY,tw+padX*2,h+padY*2); c.fillStyle=el.color;
+      }
+      c.fillText(el.text,0,0);
+      c.restore();
+    } else c.fillText(el.text,p.x,p.y);
   }
 
   if(sel&&!isPreview) drawSelBox(c,el);
@@ -2249,11 +2273,16 @@ function parseSOSI(text){
   while(i<n){
     const line=lines[i], trimmed=line.trim();
     if(dotDepth(line)===1 && /^\.[A-ZÆØÅ]/i.test(trimmed)){
-      let j=i+1; const coords=[]; let inBlock=false; let kotehoyde=null;
+      let j=i+1; const coords=[]; let inBlock=false; let kotehoyde=null; let objtype=null;
       while(j<n){
         const lj=lines[j], dj=dotDepth(lj), tj=lj.trim();
         if(dj===1) break; // neste toppnivå-objekt startar
         if(/^\.+N[ØO]/i.test(tj)){ inBlock=true; j++; continue; }
+        // OBJTYPE — SOSI-objekttype (t.d. "Bygning", "VegSenterlinje",
+        // "Høydekurve") — brukt til grafikk-kategorisering ved import,
+        // sjå applySosiCategoryStyles().
+        const otm=tj.match(/^\.+OBJTYPE\s+(.+?)\s*$/i);
+        if(otm) objtype=otm[1];
         if(inBlock){
           if(isCoordLine(tj)){
             const parts=tj.split(/\s+/).map(Number);
@@ -2270,7 +2299,7 @@ function parseSOSI(text){
       if(coords.length>=2){
         let closed=Math.hypot(coords[0].x-coords[coords.length-1].x,coords[0].y-coords[coords.length-1].y)<0.001; // <1mm
         if(closed) coords.pop();
-        if(coords.length>=2) rawOut.push({type:closed?'poly':'polyline',pts:coords,closed,color:IMPORT_COLOR,width:IMPORT_WIDTH,kotehoyde});
+        if(coords.length>=2) rawOut.push({type:closed?'poly':'polyline',pts:coords,closed,color:IMPORT_COLOR,width:IMPORT_WIDTH,kotehoyde,objtype});
       }
       i=j; continue;
     }
@@ -2377,7 +2406,7 @@ function importDxfFile(file){
 }
 function importSosiFile(file){
   const r=new FileReader();
-  r.onload=ev=>{
+  r.onload=async ev=>{
     try{
       const buf=ev.target.result;
       let txt=new TextDecoder('utf-8').decode(buf);
@@ -2388,17 +2417,28 @@ function importSosiFile(file){
         txt=new TextDecoder(map[enc]||'iso-8859-1').decode(buf);
       }
       const res=parseSOSI(txt);
-      placeImportedGeometry(res.elements, 1, res.koordsys, 'SOSI');
-      // "Målsetting eksisterande koter" — høgdetekst på kvar kotelinje som
-      // hadde eit KOTEHØYDE-attributt. res.elements er alt plassert/
-      // sentrert i mm på dette tidspunktet (placeImportedGeometry mutererer
-      // pts i den same arrayen han fekk inn).
       const contours=res.elements.filter(el=>el.kotehoyde!=null);
+      const buildings=res.elements.filter(el=>el.objtype && /bygning/i.test(el.objtype));
+      const roads=res.elements.filter(el=>el.objtype && /veg/i.test(el.objtype) && el.kotehoyde==null);
+
+      let style=null;
+      if(contours.length||buildings.length||roads.length){
+        style=await openSosiStyleModal({contours:contours.length,buildings:buildings.length,roads:roads.length});
+      }
+      // VIKTIG: styling må skje FØR placeImportedGeometry, som for bygg/veg
+      // kan gjere om 'poly'→'fill' (treng framleis rå, u-transformerte
+      // element — sjølve plasseringa/sentreringa bryr seg ikkje om typen).
+      if(style) applySosiCategoryStyles(contours, buildings, roads, style);
+
+      placeImportedGeometry(res.elements, 1, res.koordsys, 'SOSI');
+
+      // "Målsetting eksisterande koter" — høgdetekst på kvar kotelinje som
+      // hadde eit KOTEHØYDE-attributt. `contours` er alt plassert/sentrert
+      // i mm på dette tidspunktet (placeImportedGeometry mutererer pts i
+      // den same arrayen han fekk inn).
       if(contours.length){
-        let intervalM=50;
-        const answer=prompt('Avstand mellom kotehøgde-tekstar langs kvar kote (meter):','50');
-        if(answer!==null){ const n=parseFloat(answer.replace(',','.')); if(!isNaN(n)&&n>0) intervalM=n; }
-        const labels=generateKoteLabels(contours, intervalM);
+        const intervalM=(style&&style.koteInterval)||50;
+        const labels=generateKoteLabels(contours, intervalM, style&&style.koteColor);
         if(labels.length){
           elements.push(...labels);
           labels.forEach(l=>selection.add(l.id));
@@ -2409,6 +2449,77 @@ function importSosiFile(file){
     }catch(err){ console.error(err); showToast('Klarte ikkje å lese SOSI-fila: '+err.message); }
   };
   r.readAsArrayBuffer(file);
+}
+
+// ─── Grafikkval ved SOSI-import (koter/bygningar/veg) ───
+function openSosiStyleModal(counts){
+  return new Promise(resolve=>{
+    const parts=[];
+    if(counts.contours) parts.push(counts.contours+' kote'+(counts.contours===1?'':'r'));
+    if(counts.buildings) parts.push(counts.buildings+' bygning'+(counts.buildings===1?'':'ar'));
+    if(counts.roads) parts.push(counts.roads+' veg/gangveg');
+    document.getElementById('sosiStyleSummary').textContent=parts.join(', ');
+    document.getElementById('sosiKoteFields').style.display=counts.contours?'':'none';
+    document.getElementById('sosiKoteColorRow').style.display=counts.contours?'':'none';
+    document.getElementById('sosiBuildingFields').style.display=counts.buildings?'':'none';
+    document.getElementById('sosiRoadFields').style.display=counts.roads?'':'none';
+    document.getElementById('sosiKoteInterval').value='50';
+    document.getElementById('sosiKoteColor').value='#5c3a21';
+    document.getElementById('sosiKoteWidthStd').value='0.18';
+    document.getElementById('sosiKoteWidthMajor').value='0.9';
+    document.getElementById('sosiBuildingColor').value='#d4720c';
+    document.getElementById('sosiBuildingWidth').value='0.35';
+    document.getElementById('sosiRoadColor').value='#c4c0b8';
+    document.getElementById('sosiStyleModal').classList.add('show');
+    window.__sosiStyleResolve=resolve;
+  });
+}
+function confirmSosiStyle(){
+  const v=id=>document.getElementById(id).value;
+  const num=(id,def)=>{const n=parseFloat(v(id).replace(',','.'));return isNaN(n)?def:n;};
+  const result={
+    koteInterval:num('sosiKoteInterval',50), koteColor:v('sosiKoteColor'),
+    koteWidthStd:num('sosiKoteWidthStd',0.18), koteWidthMajor:num('sosiKoteWidthMajor',0.9),
+    buildingColor:v('sosiBuildingColor'), buildingWidth:num('sosiBuildingWidth',0.35),
+    roadColor:v('sosiRoadColor')
+  };
+  document.getElementById('sosiStyleModal').classList.remove('show');
+  window.__sosiStyleResolve(result);
+}
+function skipSosiStyle(){
+  document.getElementById('sosiStyleModal').classList.remove('show');
+  window.__sosiStyleResolve(null);
+}
+// Fargelegg/kategoriserer rå (u-plasserte) SOSI-element etter type FØR
+// placeImportedGeometry. Koter: mørk farge, tynn standard-tjukkleik, tjukkare
+// kvar femte (identifisert ved minste avstand mellom ulike kotehøgder i
+// fila — det vanlegaste SOSI-intervallet). Bygningar: fyllfarge (gjer om
+// 'poly'→'fill' viss lukka). Veg/gangveg: lys gråfarge, same fyll-logikk
+// viss lukka vegareal (elles berre farga senterlinje).
+function applySosiCategoryStyles(contours, buildings, roads, style){
+  if(contours.length){
+    const vals=[...new Set(contours.map(e=>e.kotehoyde))].sort((a,b)=>a-b);
+    let baseInterval=1;
+    if(vals.length>=2){
+      let minDiff=Infinity;
+      for(let i=1;i<vals.length;i++){ const d=vals[i]-vals[i-1]; if(d>0.001 && d<minDiff) minDiff=d; }
+      if(isFinite(minDiff) && minDiff>0) baseInterval=minDiff;
+    }
+    for(const el of contours){
+      const steps=Math.round((el.kotehoyde-vals[0])/baseInterval);
+      const isMajor=steps%5===0;
+      el.color=style.koteColor;
+      el.width=isMajor?style.koteWidthMajor:style.koteWidthStd;
+    }
+  }
+  for(const el of buildings){
+    el.color=style.buildingColor; el.width=style.buildingWidth;
+    if(el.closed){ el.type='fill'; el.bgColor=style.buildingColor; el.hatchColor=style.buildingColor; el.hatch='solid'; el.opacity=70; }
+  }
+  for(const el of roads){
+    el.color=style.roadColor;
+    if(el.closed){ el.type='fill'; el.bgColor=style.roadColor; el.hatchColor=style.roadColor; el.hatch='solid'; el.opacity=70; }
+  }
 }
 
 // ─── "Målsetting eksisterande koter" — kotehøgde-tekst langs kotelinjer ───
@@ -2447,7 +2558,7 @@ function formatKotehoyde(v){
   const r1=Math.round(v*10)/10;
   return Number.isInteger(r1) ? String(Math.round(v)) : r1.toFixed(1);
 }
-function generateKoteLabels(contourEls, intervalM){
+function generateKoteLabels(contourEls, intervalM, textColor){
   const intervalMm=intervalM*1000;
   const out=[];
   for(const el of contourEls){
@@ -2460,9 +2571,11 @@ function generateKoteLabels(contourEls, intervalM){
     const text='+'+formatKotehoyde(el.kotehoyde);
     for(const s of samples){
       const angle=uprightAngle(s.angle);
-      const nx=-Math.sin(angle), ny=Math.cos(angle); // perpendikulær, 1 mm løft over streken
-      out.push({ id:uid(), type:'text', x:s.x+nx*1, y:s.y+ny*1, text,
-        color:IMPORT_COLOR, sizeMm:1.8, rotation:angle,
+      // Teksten sit midt PÅ streken (textAlign/textBaseline='center'/'middle' i
+      // drawElement), med ein lys bakgrunn som "bryt" streken for lesbarheit —
+      // difor inga perpendikulær forskyving her lenger.
+      out.push({ id:uid(), type:'text', x:s.x, y:s.y, text,
+        color:textColor||IMPORT_COLOR, sizeMm:1.8, rotation:angle, bgFill:'#fbfaf7',
         layer:'Målsetting eksisterande koter' });
     }
   }
