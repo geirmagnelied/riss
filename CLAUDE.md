@@ -157,78 +157,76 @@ brukar-token, og evt. å la "Vel utsnitt" faktisk styre kva som vert
 lasta/vist (i dag er det berre eit valt punkt/område, ikkje kopla til
 noko anna enno).
 
-## 3D-modul (lagt til 30. sept. 2026)
+## 3D-modul — bygd, så fjerna att (30. sept. 2026)
 
-Tredje modul-rail-knapp **3D** (kube-ikon). Ein knapp **"Generer 3D-
-modell"** dukkar opp i kart-sidebaren under "Vel utsnitt" med det same
-`mapModule.siteExtent` er sett — akkurat den utløysemekanismen som vart
-bedt om. Klikk på han (`generate3DModel()`) byter til 3D-modulen og
-byggjer terrenget.
+Ein 3D-modul (terreng frå Kartverket sitt høgdedata-API + bygningsvolum
+frå OSM/Overpass, Three.js/OrbitControls-navigasjon) vart bygd og
+verifisert fungerande same dag, men **fjerna att på eksplisitt ønske**
+frå Geir Magne same dag, til fordel for import-/eksportmodular i staden.
+All kode (Three.js/OrbitControls-CDN, `#threeDArea`, `ensureThreeDScene`,
+`build3DTerrain`, `fetchOsmBuildings` m.fl.) er fjerna frå `index.html`.
+Teknikkane som vart stadfesta undervegs (batcha punkthøgde-API, Overpass
+`out geom;`, AbortController-timeout mot trege offentlege API-ar) kan
+vere nyttige å hente fram att om 3D-visualisering vert aktuelt seinare —
+sjå git-historikk (commits kring 30. sept. 2026) for full kode og
+grunngjeving, ikkje attskrive her sidan koden ikkje lenger finst i fila.
 
-**Kva 3D-modellen er i v1 — og bevisst IKKJE er:**
-- **Terreng**: ekte høgdedata, ikkje syntetisk. Hentar eit 20×20-rutenett
-  (400 punkt) frå Kartverket sitt opne, tokenfrie punkthøgde-API
-  (`ws.geonorge.no/hoydedata/v1/punkt`, `koordsys=4258` lat/lon, batcha
-  50 punkt per kall via `punkter`-parameteren — stadfesta i praksis at
-  tenesta støttar CORS frå nettlesar-`fetch()`, ikkje berre frå
-  server-til-server). Terrengflata sin breidd/djupn er rekna i verkelege
-  meter (haversine-formel), høgd relativt til lågaste punkt i utsnittet.
-  Fargelagt etter høgd (grønn→gul→brun→kvit).
-- **Bygningsvolum (lagt til same dag, etter innspel om OSM)**: ekte
-  fotavtrykk-polygon ekstrudert til 3D-boksar, henta frå OpenStreetMap sitt
-  Overpass API (`way["building"]` i utsnittet, `out geom;` — koordinatar
-  ligg direkte i responsen, ingen separat node-oppslag naudsynt). Norske
-  OSM-bygningar er i all hovudsak importerte frå Kartverket sitt eige
-  matrikkel-datasett (sjå Wikipedia: "Norway Building Heights Import"/
-  "Import/Catalogue/Norway Building Import") — difor same kvalitet/kjelde
-  som Kartverket sjølv, berre eksponert som brukbar vektor-geometri via
-  eit CORS-ope API, i motsetnad til `wms.matrikkel` (ingen bygningslag)
-  og `ogcapitest.kartverket.no` (uttrykkeleg ein ustabil testserver).
-  Høgd: `height`-tag → direkte meter; elles `building:levels`×3 m; elles
-  ein fallback på 6 m (mange bygningar manglar enno høgd-/etasjetagging).
-  Grunnhøgd henta frå næraste punkt i det alt henta høgderutenettet, så
-  bygningane står plausibelt oppå terrenget. **Berre `way`-element** (ikkje
-  `relation`, dvs. fleirdels-/hòl-bygningar) — dekkjer størstedelen av
-  vanlege bygningar, men hoppar over kompleks bygningskompleks-geometri.
-  Grense på 400 bygningar per generering (yting).
-  - **VIKTIG driftserfaring**: det offentlege Overpass API-et (både
-    `overpass-api.de` og spegelen `overpass.kumi.systems`) kan under høg
-    last/rate-avgrensing HENGE i over eit minutt utan å svare i det heile
-    — stadfesta direkte under eiga testing. Difor har både høgdedata- og
-    bygningskalla ein eksplisitt klient-side timeout (`AbortController`,
-    15s per forsøk, med automatisk fallback til spegelen for bygningar).
-    Feilar begge/tidsavbryt, vert berre terrenget ståande att med ein
-    klår feilmelding — aldri ei uendeleg "Hentar…"-hengetilstand.
-- **INGEN ekte kartteksur draped på terrenget enno** (t.d. det fargerike
-  topografiske grunnkartet du ser i Kart-modulen, projisert ned på
-  3D-flata) — ville krevd stadfesta bilete-CORS frå Kartverket sin
-  WMTS-flisserver, som IKKJE er verifisert (høgdedata-API-et sin CORS
-  seier ingenting om flisserveren sin CORS). Realistisk neste steg, ikkje
-  eit urealistisk løfte.
-- Navigasjon: `THREE.OrbitControls` (dra=roter, scroll=zoom,
-  høgreklikk-dra=panorer) — CDN, Three.js r128 (siste versjon med
-  UMD-bygg av OrbitControls som global, kompatibelt med Riss sin
-  vanlege `<script>`-utan-modular-arkitektur; nyare Three.js-versjonar
-  krev ES-modular som ville brote alle `onclick="…"`-attributta i heile
-  fila).
-- Kameraet sin standard startvinkel kan i somme tilfelle verte for flat/
-  kantvend (avhengig av utsnittet si form/høgdeforskjell) — brukar må då
-  dra litt for å få eit betre oversyn. Ikkje forfølgt vidare, kosmetisk.
+## Dra-og-slepp-import: DXF, SOSI og IFC (lagt til 1. okt. 2026)
 
-**Testa** 30. sept. gjennom heile den ekte UI-flyten (ikkje berre JS-kall):
-"Vel utsnitt" → rektangel dregen over Oslo sentrum → "Generer 3D-modell"
-dukka opp → klikka → terreng OG bygningar generert og navigerbart,
-stadfesta med skjermbilete (m.a. eit bykvartal nær Oslo City med
-korrekt relativ plassering/høgd) og direkte `fetch()`-testar av begge
-API-a sin CORS frå nettlesarkonsollen. Overpass sitt hovudendepunkt
-504-a undervegs i testinga — spegel-fallback overtok korrekt, stadfesta
-via toast-meldinga. Ingen uventa/uhandterte konsollfeil.
+Brukar kan no dra ei `.dxf`-, `.sos`/`.sosi`- eller `.ifc`-fil rett inn i
+heile appvindauget (ikkje berre inni ein bestemt knapp/sone) — eit
+halvgjennomsiktig overlegg (`#dropOverlay`) viser seg medan ein dreg.
+Droppar ein fila medan appen er i Kart-modus, byter han automatisk til
+Skisse-modus fyrst (einaste modulen som har noko å importere til).
+DXF/SOSI bruker dei same parsarane/`placeImportedGeometry()`-pipelinen
+som filveljaren i "Importer underlag"-modalen (som òg no tek alle tre
+filtypane, ikkje berre DXF/SOSI) — same kode, berre to utløysarar.
 
-**Naturlege neste steg** (ikkje uttrykt som prioriterte enno): ekte
-kartteksur på terrenget (krev å stadfeste flis-CORS, evt. via ein
-eigen liten proxy dersom Kartverket ikkje tillèt direkte canvas-bruk),
-`relation`-bygningar (fleirdels-/hòl-geometri), og å lagre generert
-3D-terreng/bygningar saman med prosjektet i Supabase.
+**IFC** er heilt nytt og fortener eiga forklaring:
+
+- Brukar **web-ifc** (ThatOpen/`engine_web-ifc`, WASM, CDN
+  `cdn.jsdelivr.net/npm/web-ifc@0.0.68/web-ifc-api-iife.js`) — IIFE-bygget,
+  som gir ein global `WebIFC.IfcAPI`, kompatibelt med Riss sin vanlege
+  `<script>`-utan-modular-arkitektur (same grunngjeving som kvifor
+  Three.js r128 vart valt tidlegare for OrbitControls).
+- **Lasta lat** (`loadScriptOnce()`), ikkje statisk i `<head>` — biblioteket
+  (~5 MB) prøver å auto-initialisere WASM med feil default-sti med det
+  same scriptet køyrer, som ga 400-feil i konsollen på KVAR sideinnlasting
+  uavhengig av om IFC vart brukt (stadfesta direkte). Lat lasting løyser
+  dette heilt (stadfesta: null konsollfeil ved vanleg sideinnlasting i ei
+  heilt fersk fane), og sparer 5 MB for dei aller fleste økter som aldri
+  rører IFC.
+- **`SetWasmPath(url, true)`** — merk det **andre** argumentet (`absolute`).
+  Utan det vert `url` tolka som RELATIV til scriptet, ikkje absolutt, og
+  WASM-lastinga feilar stille med "both async and sync fetching of the
+  wasm failed". Lett å gløyme, stadfesta direkte under eiga testing.
+- **VIKTIG, ikkje-openbert geometri-funn**: web-ifc returnerer
+  vertex-geometri i **Y-OPP-konvensjon** (vanleg i webgrafikk/glTF), IKKJE
+  IFC sin eigen native Z-opp. Stadfesta empirisk: ein testvegg sin
+  tjukkleik (0,2 m) dukka fyrst opp i Y-komponenten saman med heile
+  veggen sin HØGD (2,4 m) blanda inn, ikkje i det eg venta. Grunnplanet
+  for 2D-fotavtrykk er difor **(X, Z)** frå den transformerte
+  vertex-arrayen, ikkje (X, Y). Sjå `parseIFC()` sin kommentar for detaljar.
+- **Kva vert importert**: for kvar `IFCWALLSTANDARDCASE`/`IFCWALL`/
+  `IFCSLAB`/`IFCCOLUMN`/`IFCBEAM`/`IFCROOF` (inntil 500 element per fil,
+  yting) hentar `GetFlatMesh`+`GetGeometry` den triangulerte 3D-geometrien
+  (med `flatTransformation` alt bruka), projiserer alle hjørnepunkt ned på
+  det horisontale planet, og reknar ut **konveks skrog** (Andrew's
+  monotone chain, `convexHull2D()`) som eit 2D-fotavtrykk-polygon.
+  **Medviten forenkling**: perfekt for rette, rektangulære veggar (det
+  vanlegaste), men "rettar ut" L-forma eller krumma element til næraste
+  konvekse omriss — ikkje full BIM-geometritrufastheit. Berre `way`-type
+  geometri vert handtert implisitt via mesh-ekstraksjonen (ingen eksplisitt
+  `relation`-spesialhandtering, men dette gjeld færre element).
+- **Lengdeeining**: antekken meter (vanlegast for IFC frå dei fleste
+  autoringverktøy) — `placeImportedGeometry(els, 1, null, 'IFC')`. Bruk
+  "Kalibrer" i etterkant viss målestokk er feil, same mønster som DXF.
+- **Testa** 1. okt. med ei handlaga, minimal gyldig IFC4-testfil (éin
+  `IFCWALLSTANDARDCASE`, 5×0,2×2,4 m) — stadfesta nøyaktig fotavtrykk
+  (1,0 m² i Riss, akkurat rett) via både direkte `parseIFC()`-kall og
+  heile dra-og-slepp-vegen i ei fersk fane, ingen konsollfeil. Ikkje testa
+  med ei verkeleg, kompleks IFC-fil frå ArchiCAD/Revit enno — handlaga
+  testfil dekkjer berre det enklaste tilfellet.
 
 ## Mappestruktur / filer
 
