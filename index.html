@@ -575,6 +575,9 @@ body.pre-start #topbar, body.pre-start #workspace{display:none}
 
 <div id="toast"></div>
 <div id="dropOverlay"><div class="drop-card"><div class="dc-title">Slepp fila her</div><div class="dc-sub">DXF, SOSI (.sos/.sosi) eller IFC vert importert som skisse-element</div></div></div>
+<!-- Modular: nye funksjonsblokker bur i eigne filer (vanlege klassiske script, delte globalar — ingen byggesteg). Lasta FØR hovudscriptet; dei brukar hovudscriptet sine globalar fyrst når dei vert kalla. -->
+<script src="js/history.js"></script>
+<script src="js/layers.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════
 //  RISS v2 — vektormotor med CAD-interaksjon
@@ -679,13 +682,15 @@ function fmtLen(mm){ if(mm>=1000) return (mm/1000).toFixed(mm>=10000?1:2)+' m'; 
 
 // ═══════════════════ RENDER ═══════════════════
 function render(){
+  stampLayers();
   ctx.clearRect(0,0,CW,CH);
   drawGrid();
   if(underlay){ const tl=w2s(underlay.x,underlay.y); ctx.globalAlpha=underlay.opacity??.6; ctx.drawImage(underlay.img,tl.x,tl.y,underlay.w*view.zoom,underlay.h*view.zoom); ctx.globalAlpha=1; }
-  for(const el of elements) drawElement(ctx,el,false);
+  for(const el of elements) if(layerVisible(el)) drawElement(ctx,el,false);
   document.getElementById('empty-hint').style.display=(elements.length===0&&!underlay)?'block':'none';
   document.getElementById('elCount').textContent=elements.length+' element';
   renderOverlay();
+  histOnRender();
 }
 
 function gridStepMm(){ const t=28; for(const c of [10,50,100,500,1000,5000,10000]) if(c*view.zoom>=t) return c; return 10000; }
@@ -713,10 +718,27 @@ function hatchPattern(c,color,kind){
   return c.createPattern(pc,'repeat');
 }
 
+// ─── PAPIR-MM (utskrifts-einingar) ───
+// `el.weightMm` = linjetjukkleik i papir-mm ved teikna målestokk (som i Archicad/AutoCAD
+// plottevekter); `el.sizeMm` på tekst = tekstkøyrehøgd i papir-mm. Skal vere
+// stabile uansett zoom i høve til geometrien: tekst = sizeMm × målestokk × zoom
+// (følgjer modellen), linjer = papir-mm × 3,78 px/mm, forstørra med zoom over
+// utskriftsmålestokk men maks 3× (elles vert 0,9 mm-linjer absurd tjukke ved
+// arbeidszoom, som er langt over utskriftsstorleik). Eldre element utan
+// weightMm brukar framleis den gamle `width`-pen-einingsformelen (uendra).
+function penPx(el){
+  if(el.weightMm){
+    const mag=Math.min(Math.max(view.zoom*scaleRatio/3.78,1),3);
+    return Math.max(.75, el.weightMm*3.78*mag);
+  }
+  return Math.max(.75, (el.width||1.2)*Math.min(view.zoom*2.2,2.2));
+}
+function textPx(el){ return el.sizeMm ? el.sizeMm*scaleRatio*view.zoom : (el.size||16); }
+
 function drawElement(c,el,isPreview){
   c.save();
   c.strokeStyle=el.color; c.fillStyle=el.color;
-  c.lineWidth=Math.max(.75, el.width*Math.min(view.zoom*2.2,2.2));
+  c.lineWidth=penPx(el);
   c.lineCap='round'; c.lineJoin='round';
   if(isPreview) c.globalAlpha=.7;
   const sel=selection.has(el.id);
@@ -775,7 +797,7 @@ function drawElement(c,el,isPreview){
   }
   else if(el.type==='dim'){ drawDim(c,el); }  else if(el.type==='text'){
     const p=w2s(el.x,el.y); c.fillStyle=el.color;
-    const pxSize = el.sizeMm ? el.sizeMm*view.zoom : (el.size||16); // sizeMm: ekte mm-storleik som skalerer med målestokk (t.d. kotehøgde-tekst); size: fast skjerm-px (vanleg tekstverktøy)
+    const pxSize = textPx(el); // sizeMm: papir-mm × målestokk (følgjer modellen, t.d. kotehøgde-tekst); size: fast skjerm-px (vanleg tekstverktøy)
     c.font=`${pxSize}px 'Inter',sans-serif`;
     if(el.rotation!=null){
       c.save(); c.translate(p.x,p.y); c.rotate(el.rotation);
@@ -1244,7 +1266,7 @@ function bbox(el){
   if(['poly','fill','pen','polyline'].includes(el.type)){let a=1e15,b=1e15,c=-1e15,d=-1e15;for(const p of el.pts){a=Math.min(a,p.x);b=Math.min(b,p.y);c=Math.max(c,p.x);d=Math.max(d,p.y);}return{minx:a,miny:b,maxx:c,maxy:d};}
   if(el.type==='wall'){let a=1e15,b=1e15,c=-1e15,d=-1e15;const pad=(el.thickness||150)/2+Math.abs(el.refOffset||0);for(const p of el.pts){a=Math.min(a,p.x-pad);b=Math.min(b,p.y-pad);c=Math.max(c,p.x+pad);d=Math.max(d,p.y+pad);}return{minx:a,miny:b,maxx:c,maxy:d};}
   if(el.type==='label') return{minx:Math.min(el.p1.x,el.p2.x,el.p3.x,el.haleEnd.x),miny:Math.min(el.p1.y,el.p2.y,el.p3.y,el.haleEnd.y)-el.sizeMm*3,maxx:Math.max(el.p1.x,el.p2.x,el.p3.x,el.haleEnd.x)+40,maxy:Math.max(el.p1.y,el.p2.y,el.p3.y,el.haleEnd.y)+4};
-  if(el.type==='text'){ const sz=el.sizeMm||(el.size||16); return {minx:el.x,miny:el.y-sz,maxx:el.x+el.text.length*sz*.55,maxy:el.y}; }
+  if(el.type==='text'){ const sz=el.sizeMm?el.sizeMm*scaleRatio:(el.size||16); return {minx:el.x-(el.rotation!=null?el.text.length*sz*.275:0),miny:el.y-sz,maxx:el.x+el.text.length*sz*.55,maxy:el.y}; }
   return null;
 }
 function lockAngle(s,cur){
@@ -1293,9 +1315,12 @@ function computeLineEnd(origin){
 }
 
 // ─── SNAPPING ───
+let snapExcludeId=null; // element som vert redigert via handtak — skal ikkje snappe mot seg sjølv
 function getSegments(){
   const segs=[];
   for(const el of elements){
+    if(!layerVisible(el)||el.id===snapExcludeId) continue;
+    if(el.type==='alignment'){ if(typeof alignSegments==='function') segs.push(...alignSegments(el)); continue; }
     if(['line','dim','arrow'].includes(el.type)) segs.push({a:{x:el.x1,y:el.y1},b:{x:el.x2,y:el.y2},el,segIdx:0});
     else if(el.type==='polyline'){ for(let i=0;i<el.pts.length-1;i++)segs.push({a:el.pts[i],b:el.pts[i+1],el,segIdx:i}); }
     else if(el.type==='rect'){const c=[{x:el.x1,y:el.y1},{x:el.x2,y:el.y1},{x:el.x2,y:el.y2},{x:el.x1,y:el.y2}];for(let i=0;i<4;i++)segs.push({a:c[i],b:c[(i+1)%4],el,segIdx:i});}
@@ -1311,6 +1336,8 @@ function getSegments(){
   // in-progress polygon
   for(let i=0;i<polyPoints.length-1;i++) segs.push({a:polyPoints[i],b:polyPoints[i+1],el:null,segIdx:i,live:true});
   if((tool==='poly')&&polyPoints.length>0&&rawCursorWorld) segs.push({a:polyPoints[polyPoints.length-1],b:rawCursorWorld,el:null,segIdx:polyPoints.length-1,live:true,active:true});
+  // in-progress senterlinje (alignment-verktøyet) — sjå js/alignment.js
+  if(typeof alignLiveSegments==='function') segs.push(...alignLiveSegments());
   return segs;
 }
 function perpFoot(p,a,b){const dx=b.x-a.x,dy=b.y-a.y,l2=dx*dx+dy*dy;if(l2===0)return a;let t=((p.x-a.x)*dx+(p.y-a.y)*dy)/l2;t=Math.max(0,Math.min(1,t));return{x:a.x+t*dx,y:a.y+t*dy};}
@@ -1323,7 +1350,7 @@ function computeSnap(wp,sp){
   const segs=getSegments();
   const consider=(cand)=>{const cs=w2s(cand.x,cand.y);const d=Math.hypot(cs.x-sp.x,cs.y-sp.y);if(d<bd){bd=d;best=cand;}};
 
-  if(snapTypes.endpoint){ for(const s of segs){ if(!s.active) consider({x:s.a.x,y:s.a.y,type:'endpoint'}); if(!s.active) consider({x:s.b.x,y:s.b.y,type:'endpoint'}); } for(const el of elements){if(el.pts)for(const p of el.pts)consider({x:p.x,y:p.y,type:'endpoint'});} }
+  if(snapTypes.endpoint){ for(const s of segs){ if(!s.active) consider({x:s.a.x,y:s.a.y,type:'endpoint'}); if(!s.active) consider({x:s.b.x,y:s.b.y,type:'endpoint'}); } for(const el of elements){if(!layerVisible(el)||el.id===snapExcludeId||el.type==='alignment')continue;if(el.pts)for(const p of el.pts)consider({x:p.x,y:p.y,type:'endpoint'});} }
   if(snapTypes.mid){ for(const s of segs){ if(!s.active) consider({x:(s.a.x+s.b.x)/2,y:(s.a.y+s.b.y)/2,type:'mid'}); } }
   // subdivision snap points (from arrow up/down on a segment)
   for(const s of segs){ if(!s.el||s.segIdx===undefined)continue; const key=s.el.id+':'+s.segIdx; const div=lineDivState.get(key)||0; if(div>=2){for(let k=1;k<div;k++){const t=k/div;consider({x:s.a.x+(s.b.x-s.a.x)*t,y:s.a.y+(s.b.y-s.a.y)*t,type:'mid'});}} }
@@ -1698,7 +1725,7 @@ function finishBoxSelect(){
   if(!boxStart||!boxCur)return;
   const minx=Math.min(boxStart.x,boxCur.x),maxx=Math.max(boxStart.x,boxCur.x),miny=Math.min(boxStart.y,boxCur.y),maxy=Math.max(boxStart.y,boxCur.y);
   if(Math.abs(maxx-minx)<2&&Math.abs(maxy-miny)<2)return;
-  for(const el of elements){const bb=bbox(el);if(bb&&bb.minx>=minx&&bb.maxx<=maxx&&bb.miny>=miny&&bb.maxy<=maxy)selection.add(el.id);}
+  for(const el of elements){if(!layerVisible(el)||layerLocked(el))continue;const bb=bbox(el);if(bb&&bb.minx>=minx&&bb.maxx<=maxx&&bb.miny>=miny&&bb.maxy<=maxy)selection.add(el.id);}
   updateProps();
 }
 
@@ -1816,6 +1843,7 @@ function findHoverSegment(sp){
 function hitTest(sp){
   const tol=7;
   for(let i=elements.length-1;i>=0;i--){const el=elements[i];
+    if(!layerVisible(el)||layerLocked(el)) continue;
     if(['line','dim','arrow'].includes(el.type)){ if(distSeg(sp,w2s(el.x1,el.y1),w2s(el.x2,el.y2))<tol)return el; }
     else if(el.type==='polyline'){ for(let k=0;k<el.pts.length-1;k++){if(distSeg(sp,w2s(el.pts[k].x,el.pts[k].y),w2s(el.pts[k+1].x,el.pts[k+1].y))<tol){el._hitSeg=k;return el;}} }
     else if(el.type==='rect'||el.type==='ellipse'){const a=w2s(el.x1,el.y1),b=w2s(el.x2,el.y2);const mnx=Math.min(a.x,b.x),mxx=Math.max(a.x,b.x),mny=Math.min(a.y,b.y),mxy=Math.max(a.y,b.y);if(sp.x>=mnx-tol&&sp.x<=mxx+tol&&sp.y>=mny-tol&&sp.y<=mxy+tol){const edge=Math.abs(sp.x-mnx)<tol||Math.abs(sp.x-mxx)<tol||Math.abs(sp.y-mny)<tol||Math.abs(sp.y-mxy)<tol;if(edge||el.type==='ellipse')return el;}}
@@ -1838,7 +1866,11 @@ function hitTest(sp){
       if(distSeg(sp,w2s(el.p2.x,el.p2.y),w2s(el.p3.x,el.p3.y))<tol) return el;
       if(distSeg(sp,w2s(el.p3.x,el.p3.y),w2s(el.haleEnd.x,el.haleEnd.y))<tol) return el;
     }
-    else if(el.type==='text'){const p=w2s(el.x,el.y);if(sp.x>=p.x-tol&&sp.x<=p.x+el.text.length*9&&sp.y>=p.y-18&&sp.y<=p.y+tol)return el;}
+    else if(el.type==='text'){
+      const p=w2s(el.x,el.y);
+      if(el.rotation!=null){ const px=textPx(el); if(Math.hypot(sp.x-p.x,sp.y-p.y)<Math.max(tol,px*el.text.length*.3))return el; }
+      else if(sp.x>=p.x-tol&&sp.x<=p.x+el.text.length*9&&sp.y>=p.y-18&&sp.y<=p.y+tol)return el;
+    }
   }
   return null;
 }
@@ -1956,6 +1988,7 @@ function keyPt(p){ return Math.round(p.x/FLOOD_EPS)+','+Math.round(p.y/FLOOD_EPS
 function buildBoundarySegments(){
   const out=[];
   for(const el of elements){
+    if(!layerVisible(el)) continue;
     if(el.type==='line') out.push({a:{x:el.x1,y:el.y1},b:{x:el.x2,y:el.y2}});
     else if(el.type==='polyline'){ for(let i=0;i<el.pts.length-1;i++) out.push({a:el.pts[i],b:el.pts[i+1]}); }
     else if(el.type==='wall'){ const flat=wallPolylinePoints(el.pts,el.segs,16); for(let i=0;i<flat.length-1;i++) out.push({a:flat[i],b:flat[i+1]}); }
@@ -2429,6 +2462,12 @@ function importSosiFile(file){
       // kan gjere om 'poly'→'fill' (treng framleis rå, u-transformerte
       // element — sjølve plasseringa/sentreringa bryr seg ikkje om typen).
       if(style) applySosiCategoryStyles(contours, buildings, roads, style);
+      // Eigne lag per kategori (uavhengig av om styling vart valt) — gjer det mogleg å
+      // skjule/låse t.d. alle koter eller all veg. Kotelinjer får og høgda si som
+      // `z` (mm) slik at 3D-visinga viser dei som stabla høgdekurver.
+      for(const el of contours){ el.layer=ensureLayer('Koter'); el.z=el.kotehoyde*1000; }
+      for(const el of buildings) el.layer=ensureLayer('Bygningar');
+      for(const el of roads) el.layer=ensureLayer('Veg');
 
       placeImportedGeometry(res.elements, 1, res.koordsys, 'SOSI');
 
@@ -2509,11 +2548,11 @@ function applySosiCategoryStyles(contours, buildings, roads, style){
       const steps=Math.round((el.kotehoyde-vals[0])/baseInterval);
       const isMajor=steps%5===0;
       el.color=style.koteColor;
-      el.width=isMajor?style.koteWidthMajor:style.koteWidthStd;
+      el.weightMm=isMajor?style.koteWidthMajor:style.koteWidthStd; // papir-mm, sjå penPx()
     }
   }
   for(const el of buildings){
-    el.color=style.buildingColor; el.width=style.buildingWidth;
+    el.color=style.buildingColor; el.weightMm=style.buildingWidth;
     if(el.closed){ el.type='fill'; el.bgColor=style.buildingColor; el.hatchColor=style.buildingColor; el.hatch='solid'; el.opacity=70; }
   }
   for(const el of roads){
@@ -2740,14 +2779,14 @@ function exportSVG(){
   let a=1e15,b=1e15,c=-1e15,d=-1e15;for(const el of elements){const bb=bbox(el);if(bb){a=Math.min(a,bb.minx);b=Math.min(b,bb.miny);c=Math.max(c,bb.maxx);d=Math.max(d,bb.maxy);}}
   const pad=50;a-=pad;b-=pad;c+=pad;d+=pad;const W=c-a,H=d-b;
   let svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="${a} ${b} ${W} ${H}">\n<rect x="${a}" y="${b}" width="${W}" height="${H}" fill="#fbfaf7"/>\n`;
-  for(const el of elements){const sw=el.width||1.2;
+  for(const el of elements){if(!layerVisible(el))continue;const sw=el.weightMm?el.weightMm*scaleRatio:(el.width||1.2);
     if(['line','arrow'].includes(el.type))svg+=`<line x1="${el.x1}" y1="${el.y1}" x2="${el.x2}" y2="${el.y2}" stroke="${el.color}" stroke-width="${sw}" stroke-linecap="round"/>\n`;
     else if(el.type==='dim'){const ang=Math.atan2(el.y2-el.y1,el.x2-el.x1);const nx=Math.cos(ang+Math.PI/2)*(el.offset||0),ny=Math.sin(ang+Math.PI/2)*(el.offset||0);svg+=`<line x1="${el.x1+nx}" y1="${el.y1+ny}" x2="${el.x2+nx}" y2="${el.y2+ny}" stroke="${el.color}" stroke-width="1"/>\n`;}
     else if(el.type==='rect')svg+=`<rect x="${Math.min(el.x1,el.x2)}" y="${Math.min(el.y1,el.y2)}" width="${Math.abs(el.x2-el.x1)}" height="${Math.abs(el.y2-el.y1)}" fill="none" stroke="${el.color}" stroke-width="${sw}"/>\n`;
     else if(el.type==='ellipse')svg+=`<ellipse cx="${(el.x1+el.x2)/2}" cy="${(el.y1+el.y2)/2}" rx="${Math.abs(el.x2-el.x1)/2}" ry="${Math.abs(el.y2-el.y1)/2}" fill="none" stroke="${el.color}" stroke-width="${sw}"/>\n`;
     else if(['poly','fill','pen','polyline'].includes(el.type)){const dd=el.pts.map((p,i)=>(i===0?'M':'L')+p.x.toFixed(1)+' '+p.y.toFixed(1)).join(' ')+((el.closed||el.type==='fill')?' Z':'');const fill=el.type==='fill'?el.color:'none';const fo=el.type==='fill'?` fill-opacity="${((el.opacity??70)/100*0.5).toFixed(2)}"`:'';svg+=`<path d="${dd}" fill="${fill}"${fo} stroke="${el.color}" stroke-width="${sw}" stroke-linejoin="round"/>\n`;}
     else if(el.type==='text'){
-      const sz=el.sizeMm||el.size||16;
+      const sz=el.sizeMm?el.sizeMm*scaleRatio:(el.size||16);
       const rotDeg=el.rotation?(el.rotation*180/Math.PI):0;
       const transform=el.rotation?` transform="rotate(${rotDeg} ${el.x} ${el.y})"`:'';
       svg+=`<text x="${el.x}" y="${el.y}" font-family="Inter,sans-serif" font-size="${sz}" fill="${el.color}"${transform}>${escX(el.text)}</text>\n`;
@@ -2800,7 +2839,13 @@ window.addEventListener('keydown',e=>{
     return;
   }
   if(e.code==='Space'){spaceDown=true;host.style.cursor='grab';e.preventDefault();return;}
-  if(e.ctrlKey||e.metaKey){if(e.key==='d'){e.preventDefault();if(selection.size)duplicateSelection();}else if(e.key==='z'){showToast('Angre kjem snart');}return;}
+  if(e.ctrlKey||e.metaKey){
+    const k=e.key.toLowerCase();
+    if(k==='d'){e.preventDefault();if(selection.size)duplicateSelection();}
+    else if(k==='z'&&!e.shiftKey){e.preventDefault();undo();}
+    else if(k==='y'||(k==='z'&&e.shiftKey)){e.preventDefault();redo();}
+    return;
+  }
   const map={v:'select',l:'line',r:'rect',p:'poly',b:'pen',d:'dim',t:'text',f:'fill',o:'ellipse',a:'arrow',w:'wall',k:'label'};
   if(map[e.key.toLowerCase()]){setTool(map[e.key.toLowerCase()]);return;}
   if(e.key==='Delete'||e.key==='Backspace'){if(selection.size)deleteSelection();return;}
@@ -3243,13 +3288,13 @@ async function createProjectPrompt(){
 }
 async function openProject(id,name){
   currentProject={id,name}; currentDrawingId=null;
-  elements=[]; selection.clear(); geoRef=null;
+  elements=[]; selection.clear(); geoRef=null; layersReset(null,null);
   const {data,error}=await sb.from('riss_drawings').select('id,data').eq('project_id',id).eq('user_id',currentUser.id).limit(1).maybeSingle();
   if(error){ showToast('Klarte ikkje å laste teikning: '+error.message); }
   else if(data){
     currentDrawingId=data.id;
     const d=data.data||{};
-    elements=d.elements||[]; geoRef=d.geoRef||null;
+    elements=d.elements||[]; geoRef=d.geoRef||null; layersReset(d.layers,d.curLayer);
     if(d.view) Object.assign(view,d.view);
     if(d.scaleRatio) scaleRatio=d.scaleRatio;
   }
@@ -3259,6 +3304,7 @@ async function openProject(id,name){
   document.getElementById('projectDivider').style.display='';
   enterAppUI();
   updateGeoRefUI();
+  histInit();
   const sel=document.getElementById('scaleSelect'); if(sel) sel.value=String(scaleRatio);
   showToast('Opna prosjekt: '+name);
 }
@@ -3270,7 +3316,8 @@ function backToProjects(){
 }
 async function saveDrawing(){
   if(!currentUser||!currentProject){ showToast('Ikkje noko prosjekt ope å lagre til'); return; }
-  const payload={elements, geoRef, view:{panX:view.panX,panY:view.panY,zoom:view.zoom}, scaleRatio};
+  // utan mellombelse "_"-felt (mellomlager som _geo) og visingstilstand (selSeg)
+  const payload=JSON.parse(JSON.stringify({elements, geoRef, layers, curLayer, view:{panX:view.panX,panY:view.panY,zoom:view.zoom}, scaleRatio},(k,v)=>(k==='selSeg'||k[0]==='_')?undefined:v));
   if(currentDrawingId){
     const {error}=await sb.from('riss_drawings').update({data:payload,updated_at:new Date().toISOString()}).eq('id',currentDrawingId);
     if(error){ showToast('Lagring feila: '+error.message); return; }
@@ -3419,6 +3466,8 @@ resizeCanvases();
 view.zoom=0.4;view.panX=CW/2;view.panY=CH/2;updateZoom();render();
 document.getElementById('railFgSwatch').style.background=curColor;
 document.getElementById('railBgSwatch').style.background=fillColor;
+layersRefreshUI();
+histInit();
 
 </script>
 </body>
