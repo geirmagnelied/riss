@@ -319,6 +319,60 @@ provar at det er ekte, redigerbare fyll-element), og tekst-sentrering/
 bakgrunn (visuelt stadfesta: "+40" sentrert og lesbart midt på ei tjukk
 brun linje). Ingen konsollfeil gjennom heile testen.
 
+## Markering, kartzoom til prosjektadresse og utsnittsmeny (4. okt. 2026)
+
+**Markering**: valde element har ingen stipla ramme lenger — `drawElement()`
+teiknar ein kopi av elementet med `color:SEL_COLOR` (`#2563eb`, blå). Fyll/
+skravur beheld eigen farge (bg/hatch vert fiksert til opphavleg farge før
+kopien vert farga). Handtak (`js/grips.js`) er uendra. `drawSelBox()` er fjerna.
+
+**Min. zoom** i hovudvisinga er senka frå 0,02 til 0,0005 px/mm — eit
+situasjonskart på 200 m har ikkje plass ved 0,02, og hjulzoom hoppa då «innover».
+
+### `js/kartutsnitt.js`
+- **Zoom til prosjektadresse**: `openProject()` hentar `projects.details`
+  (jsonb frå notatappen, `currentProject.details`; `detailsLoaded` er eit
+  promise). `mapGotoProject()` geokodar `propertyAddress`+`propertyPostnr`
+  (ellers kommunenr., ellers gnr/bnr) via Geonorge adresse-API
+  (`ws.geonorge.no/adresser/v1/sok`, `representasjonspunkt`), zoom 18 + markør.
+  Finn han ikkje adressa → melding + posisjon frå nettlesaren som før.
+  Kartet zoomar på nytt når prosjektet byter (`mapModule.projectId`).
+  Zoomkontrollen i Leaflet er flytta til øvre høgre hjørne.
+- **Utsnittsmeny**: etter «Vel utsnitt»-drag dukkar `#extentPanel` opp oppe til
+  venstre i kartet: nedtrekk «Handling» (*Bruk som tegningsunderlag* /
+  *Eksporter PDF*), «Målestokk» (auto = minste standardmålestokk som får
+  utsnittet på A3, eller 1:100–1:10000) og «Papirstorleik» (A3/A4, berre PDF).
+- **UTM**: eigen Krüger-implementasjon (`utmFraLatLon`/`latLonFraUtm`, verifisert
+  mot kjent punkt 60°N 9°Ø → N 6 651 411). Sone vert styrt av `geoRef.koordsys`
+  (22/23/25 → UTM 32/33/35) viss teikninga alt er registrert, elles av lengdegrad.
+  WMS vert spurt direkte i `EPSG:258xx`, så biletet er metrisk korrekt.
+- **Underlag**: kartbilete (aktiv basis + påslåtte overlegg, Geonorge WMS, CORS-opent)
+  vert lagt som `underlay` i verkelege mm (1 m = 1000 mm) mot `geoRef`; i tillegg
+  **vektor frå OSM** (bygningar → `fill` oransje, vegar → `polyline`) i laga
+  «Kart – bygningar»/«Kart – veg», via `placeImportedGeometry()`. `scaleRatio`
+  vert sett til vald målestokk. OSM-bygg har `noArea:true` (ingen m²-tekst).
+  **Overpass er ustabil**: `overpass-api.de` ga 504 under testing, medan
+  `overpass.openstreetmap.fr` svarte på 0,5 s — alle vert spurde samtidig,
+  første gyldige svar vinn; bygg og veg er eigne spørjingar så éin feil ikkje
+  tek med seg den andre; feil gir berre kartbilete + melding.
+  **Kartverket sin WFS (eigedomsgrenser) har ikkje CORS** og kan ikkje brukast frå
+  nettlesaren; FKB er «norway digital restricted». Eigedomsgrenser kjem difor
+  berre som raster (overlegget «Eigedomsgrenser»).
+- **PDF**: papirflata × målestokk, sentrert på utsnittet, WMS i 200 dpi, ramme,
+  nordpil, målestokklinje og infofelt; skriven som minimal PDF (JPEG i DCTDecode,
+  `kartPdfBytes()`, ingen bibliotek). Filnamn: `Situasjonskart <ÅÅÅÅ-MM-DD> 1-<målestokk> <kartdatabase>.pdf`.
+  PDF-en er **raster** (ikkje vektor).
+  Lagring: `window.resultatdokumentAPI.rissLagreInn(oppdragsSti, filnamn, bytes)`
+  (ny IPC `riss:lagre-inn` i notatappen sin `electron/main.js`+`preload.js`)
+  → `<oppdragsSti>\2 Informasjonsflyt\Inn` (aldri overskriving: « (2)» ved same namn).
+  Krev at prosjektet er låst til ei oppdragsmappe (`details.oppdragsStiLast`).
+  Utan bru/låst mappe vert fila lasta ned i nettlesaren. **Merk**: Riss er ei eiga
+  nettside — brua finst berre viss Riss vert opna i notatapp-vindauget
+  (preload gjeld kvar side som vert lasta i same Electron-vindauge), og
+  Electron-appen må byggjast på nytt (`npm run dist`) for å få det nye endepunktet.
+- **Avgrensingar**: underlaget (rasteret) vert ikkje lagra i `riss_drawings` (berre
+  vektorelementa) — det forsvinn ved sideoppfrisking; ingen knapp for å fjerne det.
+
 ## Strukturelle endringar for vegmodul (3.–4. okt. 2026)
 
 Mål: ein **vegtegnings-modul** for norske vegklassar (brukar definerer

@@ -581,6 +581,7 @@ body.pre-start #topbar, body.pre-start #workspace{display:none}
 <script src="js/alignment.js"></script>
 <script src="js/grips.js"></script>
 <script src="js/view3d.js"></script>
+<script src="js/kartutsnitt.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════
 //  RISS v2 — vektormotor med CAD-interaksjon
@@ -739,13 +740,21 @@ function penPx(el){
 }
 function textPx(el){ return el.sizeMm ? el.sizeMm*scaleRatio*view.zoom : (el.size||16); }
 
+const SEL_COLOR='#2563eb';
 function drawElement(c,el,isPreview){
+  // Valt element: same teikning, men blå — ingen stipla ramme. Teiknar ein kopi
+  // (elementet i `elements` er urørt), og fyll/skravur beheld eigen farge.
+  const sel=selection.has(el.id);
+  if(sel&&!isPreview&&!el._selTint){
+    const t=Object.assign({},el,{color:SEL_COLOR,_selTint:true});
+    if(el.type==='fill'){ t.bgColor=el.bgColor||el.color; t.hatchColor=el.hatchColor||el.color; }
+    el=t;
+  }
   c.save();
   c.strokeStyle=el.color; c.fillStyle=el.color;
   c.lineWidth=penPx(el);
   c.lineCap='round'; c.lineJoin='round';
   if(isPreview) c.globalAlpha=.7;
-  const sel=selection.has(el.id);
   const isHover=(el.id&&el.id===hoverElId&&!sel&&!isPreview);
   if(isHover){ c.lineWidth=Math.max(2.2,c.lineWidth*1.8); c.shadowColor='rgba(8,145,178,.5)'; c.shadowBlur=6; }
 
@@ -769,7 +778,7 @@ function drawElement(c,el,isPreview){
       if(hatch!=='solid'){ c.save(); c.globalAlpha=isPreview?.7:1; const pat=hatchPattern(c,hc,hatch); c.fillStyle=pat; c.fill(); c.restore(); }
     }
     c.stroke();
-    if((el.type==='fill'||el.closed)&&el.pts.length>=3){
+    if((el.type==='fill'||el.closed)&&el.pts.length>=3&&!el.noArea){
       const area=polyArea(el.pts), cen=polyCentroid(el.pts), cs=w2s(cen.x,cen.y);
       c.fillStyle=el.color; c.globalAlpha=1; c.font="600 12px 'JetBrains Mono',monospace"; c.textAlign='center';
       c.fillText((area/1e6).toFixed(1)+' m²',cs.x,cs.y); c.textAlign='left';
@@ -816,7 +825,6 @@ function drawElement(c,el,isPreview){
     } else c.fillText(el.text,p.x,p.y);
   }
 
-  if(sel&&!isPreview) drawSelBox(c,el);
   c.restore();
 }
 
@@ -1021,15 +1029,6 @@ function drawDim(c,el){
   c.fillStyle='rgba(251,250,247,.92)';c.fillRect(-tw/2-4,-15,tw+8,13);
   c.fillStyle=el.color;c.fillText(label,0,-5);
   c.restore();
-}
-
-function drawSelBox(c,el){
-  const bb=bbox(el); if(!bb)return;
-  const tl=w2s(bb.minx,bb.miny), br=w2s(bb.maxx,bb.maxy);
-  c.strokeStyle='#2563eb';c.lineWidth=1;c.setLineDash([4,3]);
-  c.strokeRect(tl.x-3,tl.y-3,(br.x-tl.x)+6,(br.y-tl.y)+6);
-  c.setLineDash([]);
-  for(const [hx,hy] of [[tl.x-3,tl.y-3],[br.x+3,tl.y-3],[tl.x-3,br.y+3],[br.x+3,br.y+3]]){ c.fillStyle='#fff';c.strokeStyle='#2563eb';c.beginPath();c.rect(hx-3,hy-3,6,6);c.fill();c.stroke(); }
 }
 
 // ═══════════════════ OVERLAY ═══════════════════
@@ -2135,8 +2134,8 @@ document.addEventListener('click',e=>{if(!e.target.closest('.flyout')&&!e.target
 function setModeHint(html){const m=document.getElementById('mode-hint');if(html){m.innerHTML=html;m.classList.add('show');}else m.classList.remove('show');}
 
 // ═══════════════════ ZOOM / PAN ═══════════════════
-host.addEventListener('wheel',e=>{e.preventDefault();const sp=getSP(e);const before=s2w(sp.x,sp.y);const f=e.deltaY<0?1.1:0.9;view.zoom=Math.max(.02,Math.min(8,view.zoom*f));const after=s2w(sp.x,sp.y);view.panX+=(after.x-before.x)*view.zoom;view.panY+=(after.y-before.y)*view.zoom;updateZoom();render();},{passive:false});
-function zoomBy(f){const cx=CW/2,cy=CH/2,before=s2w(cx,cy);view.zoom=Math.max(.02,Math.min(8,view.zoom*f));const after=s2w(cx,cy);view.panX+=(after.x-before.x)*view.zoom;view.panY+=(after.y-before.y)*view.zoom;updateZoom();render();}
+host.addEventListener('wheel',e=>{e.preventDefault();const sp=getSP(e);const before=s2w(sp.x,sp.y);const f=e.deltaY<0?1.1:0.9;view.zoom=Math.max(.0005,Math.min(8,view.zoom*f));const after=s2w(sp.x,sp.y);view.panX+=(after.x-before.x)*view.zoom;view.panY+=(after.y-before.y)*view.zoom;updateZoom();render();},{passive:false});
+function zoomBy(f){const cx=CW/2,cy=CH/2,before=s2w(cx,cy);view.zoom=Math.max(.0005,Math.min(8,view.zoom*f));const after=s2w(cx,cy);view.panX+=(after.x-before.x)*view.zoom;view.panY+=(after.y-before.y)*view.zoom;updateZoom();render();}
 function zoomFit(){if(elements.length===0&&!underlay){view.zoom=0.4;view.panX=CW/2;view.panY=CH/2;updateZoom();render();return;}let a=1e15,b=1e15,c=-1e15,d=-1e15;const acc=bb=>{if(!bb)return;a=Math.min(a,bb.minx);b=Math.min(b,bb.miny);c=Math.max(c,bb.maxx);d=Math.max(d,bb.maxy);};for(const el of elements)acc(bbox(el));if(underlay)acc({minx:underlay.x,miny:underlay.y,maxx:underlay.x+underlay.w,maxy:underlay.y+underlay.h});const w=c-a,h=d-b;if(w<=0||h<=0)return;view.zoom=Math.min(CW/w,CH/h)*.85;view.panX=CW/2-(a+w/2)*view.zoom;view.panY=CH/2-(b+h/2)*view.zoom;updateZoom();render();}
 function updateZoom(){document.getElementById('zoomVal').textContent=Math.round(view.zoom/0.4*100)+'%';}
 
@@ -3335,8 +3334,11 @@ async function createProjectPrompt(){
   openProject(data.id,data.name);
 }
 async function openProject(id,name){
-  currentProject={id,name}; currentDrawingId=null;
-  elements=[]; selection.clear(); geoRef=null; layersReset(null,null);
+  currentProject={id,name,details:{}}; currentDrawingId=null;
+  if(mapModule){ mapModule.projectId=null; mapModule.projectPos=null; } // nytt prosjekt → kartet zoomar til ny adresse
+  elements=[]; selection.clear(); geoRef=null; underlay=null; layersReset(null,null);
+  // eigedomsadresse + oppdragsmappe (frå notatappen) ligg i projects.details
+  currentProject.detailsLoaded=sb.from('projects').select('details').eq('id',id).maybeSingle().then(({data})=>{ if(currentProject&&currentProject.id===id) currentProject.details=(data&&data.details)||{}; }).catch(()=>{});
   const {data,error}=await sb.from('riss_drawings').select('id,data').eq('project_id',id).eq('user_id',currentUser.id).limit(1).maybeSingle();
   if(error){ showToast('Klarte ikkje å laste teikning: '+error.message); }
   else if(data){
@@ -3426,8 +3428,9 @@ function setModule(mod){
 }
 
 function initMap(){
-  if(mapModule){ setTimeout(()=>mapModule.map.invalidateSize(),0); return; }
-  const map=L.map('mapHost',{zoomControl:true}).setView([64.5,11],5); // fallback: Noreg-oversikt
+  if(mapModule){ setTimeout(()=>mapModule.map.invalidateSize(),0); mapGotoProject(); return; }
+  const map=L.map('mapHost',{zoomControl:false}).setView([64.5,11],5); // fallback: Noreg-oversikt
+  L.control.zoom({position:'topright'}).addTo(map); // oppe til høgre — venstre side er frigjort til utsnittsmenyen
   const topo=kartverketWmts('topo').addTo(map);
   const graatone=kartverketWmts('topograatone');
   const bygg=geonorgeWms('inspire_bu','BU.Building');
@@ -3435,6 +3438,15 @@ function initMap(){
   const terreng=geonorgeWms('terrengmodell','relieff');
   mapModule={map, base:{topo,graatone}, overlays:{bygg,eigedom,terreng}, activeBase:'topo', customOverlay:null, siteExtent:null};
   initExtentTool(map);
+  mapStartPosisjon();
+}
+// Inne i eit prosjekt: zoom til prosjektet sin eigedomsadresse. Elles (eller viss adressa
+// ikkje let seg finne): brukaren sin eigen posisjon, til slutt Noreg-oversikt.
+async function mapStartPosisjon(){
+  const harProsjekt=!!currentProject;
+  if(await mapGotoProject()) return;
+  if(harProsjekt) showToast('Fann ikkje prosjektadressa — registrer eigedomsadresse i Prosjekt-modulen i notatappen. Brukar din posisjon i staden.');
+  const map=mapModule.map;
   if(navigator.geolocation){
     navigator.geolocation.getCurrentPosition(
       pos=>map.setView([pos.coords.latitude,pos.coords.longitude],16),
@@ -3489,7 +3501,7 @@ function initExtentTool(map){
     const info=document.getElementById('extentInfo');
     info.style.display='block';
     info.textContent='Utsnitt: '+c.lat.toFixed(5)+', '+c.lng.toFixed(5);
-    showToast('Utsnitt valt');
+    kartUtsnittVis(bounds);
   });
 }
 function onExtentMove(e){ if(extentRectLayer&&extentStart) extentRectLayer.setBounds(L.latLngBounds(extentStart,e.latlng)); }
