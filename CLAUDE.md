@@ -159,6 +159,10 @@ noko anna enno).
 
 ## 3D-modul — bygd, så fjerna att (30. sept. 2026)
 
+> **Oppdatering 3. okt. 2026**: ei ny, enklare 3D-vising er bygd inn att i
+> same vindauge (`js/view3d.js`, sjå «Strukturelle endringar for vegmodul»).
+> Teksten under er historikk om den fjerna terreng/OSM-versjonen.
+
 Ein 3D-modul (terreng frå Kartverket sitt høgdedata-API + bygningsvolum
 frå OSM/Overpass, Three.js/OrbitControls-navigasjon) vart bygd og
 verifisert fungerande same dag, men **fjerna att på eksplisitt ønske**
@@ -315,20 +319,96 @@ provar at det er ekte, redigerbare fyll-element), og tekst-sentrering/
 bakgrunn (visuelt stadfesta: "+40" sentrert og lesbart midt på ei tjukk
 brun linje). Ingen konsollfeil gjennom heile testen.
 
+## Strukturelle endringar for vegmodul (3.–4. okt. 2026)
+
+Mål: ein **vegtegnings-modul** for norske vegklassar (brukar definerer
+startpunkt, retning og høgder på ei senterlinje; programmet hjelper med
+restriksjonar for kurvatur, stigning, fall). Fyrst vart fundamentet bygd:
+modulsplitting, undo, lag, senterlinje med ekte bogar, handtak og 3D.
+**Opent spørsmål til Geir Magne**: skal klassane vere **N100/N101-normalen**
+(riks-/fylkesveg) eller **kommunale vegnormalar** (typisk for tomteutvikling)?
+Ikkje avklart — spør før klassetabellar vert bygde.
+
+### Modulstruktur
+`index.html` har framleis hovudskriptet inline (~3500 linjer), men nye
+delar ligg som **klassiske `<script src="js/…">`-filer lasta FØR det inline
+skriptet** (delte globale variablar, ingen ES-modular, ingen build). Funksjonar
+i `js/` kallar hovudskriptet sine globalar (`elements`, `view`, `render`,
+`w2s`, `selection` …) ved køyretid, så lastrekkjefølgja er uproblematisk.
+
+| Fil | Innhald |
+|---|---|
+| `js/history.js` | Angre/gjer om (Ctrl+Z / Ctrl+Y, knappar i topplinja). Snapshot-basert: `JSON.stringify` av `{e:elements,l:layers,c:curLayer}`, utan `selSeg` og nøklar som startar med `_`. Debounce + undertrykt medan peikaren er nede, så eit dra = eitt steg. `histOnRender()` vert kalla frå `render()`. |
+| `js/layers.js` | Lag etter namn (`el.layer`, standard `'Standard'`). Skjult lag: ikkje teikna/snappa/treft/eksportert. Låst lag: synleg og snappbart, men ikkje valbart. Lagpanel (`#layerPanel`) og knapp i topplinja. |
+| `js/alignment.js` | **Senterlinje** (`type:'alignment'`): PI-punkt + radius per indre PI → eksakt tangent-bogegeometri, stasjonering ("0+120"), eksakte parallellkurver for vegbreidd, klemming av tangentlengder (proportionalt mot ønskt lengd), eigen tegnemodus (Enter/Esc avsluttar). |
+| `js/grips.js` | Handtak for eitt valt element: kvadrat = punkt, sirkel = bogestyring, rombe = radius på senterlinjebogar (R = E·cos(Δ/2)/(1−cos(Δ/2)), klemt 1 m–5000 km). |
+| `js/view3d.js` | **3D-vising i same vindauge** (sjå under). |
+
+`index.html` kallar inn i modulane via faste kroker: `render()` (stampLayers,
+`histOnRender`, `v3OnRender`), `setTool`, `updateProps`, `setModule`,
+tastatur (Ctrl+Z/Y, `c`=senterlinje), lagring/opning (lag og `curLayer` ligg i
+`riss_drawings.data`; `layersReset()` + `histInit()` ved opning).
+
+### Papir-mm for linjetjukkleik og tekst
+`el.weightMm` (linje) og `el.sizeMm` (tekst) er **papireiningar** knytt til
+målestokken (`scaleRatio`): 0,18 mm-linje ser lik ut på papir uansett 1:100/
+1:500. Bruk `penPx(el)`/`textPx(el)` — ikkje rå mm-verdiar — ved teikning.
+(Tidlegare vart 1,8 mm tekst rekna som verkeleg mm og vart usynleg.)
+
+### 3D-vising (`js/view3d.js`)
+- **Same vindauge**: 2D|3D-brytar i topplinja (`#viewToggle`). Overgangen er
+  animert (kamera tiltar frå rett ovanfrå med same utsnitt som 2D og tilbake),
+  så 3D startar nøyaktig der 2D-visinga var. Verktøyraila er deaktivert i 3D
+  (`#toolrail.v3-disabled`); markering og eigenskapspanel verkar framleis,
+  og angre/gjer om fungerer i 3D (scena vert bygd om via `v3OnRender`).
+- **Three.js r128 (UMD) + OrbitControls**, lasta lat ved fyrste 3D-bruk
+  (`v3LoadLibs()`), ikkje i `<head>`.
+- **Aksar**: Riss-world mm → scene i meter. x→X, plan-y→Z, høgd→Y (Y opp).
+  Scena er sentrert på innhaldet (`V3.center`). Handtert via `V3.group`;
+  «Høgde ×»-valet (1/2/5/10) skalerer `group.scale.y` (høgdeoverdriving).
+- **Datamodell**: `el.z` = underkant/kote (mm), `el.height` = ekstrudering
+  (mm). Vegg utan `height` = 2,5 m. Fyll/poly/rektangel/ellipse ekstruderast
+  berre om `height>0`. Linjer med `z` (t.d. kotekurver frå SOSI, som får
+  `z=kotehøgd`) vert teikna i den høgda. Senterlinja vert eit flatt
+  vegband (`v3Ribbon`, konstant z inntil lengdeprofil finst). IFC-import
+  fyller `z/height/ifcType`. Eigenskapspanelet har «Underkant/kote z» og
+  «Høgd» (`heightUpdateProps()`), vegg-verktøyet har eit «Høgd»-felt.
+- **Kamera**: `v3Pose()`/`v3SetCam()` (φ=høgdevinkel, θ=asimut, avstand);
+  presets *Plan*, *Perspektiv*, *Tilpass* (`v3Preset`). Kameraet sin up-vektor
+  vert sett til (0,1,0) etter kvar animasjon, så OrbitControls fungerer.
+- **Fallgruve**: dokumentet har `overflow:hidden`, men kan likevel scrollast
+  programmatisk (fokus på ein knapp når topplinja er breiare enn vindauget) —
+  då gled heile appen sidevegs. `view3d.js` nullstiller scroll på sjølve
+  dokumentet. Topplinje-element (`#viewToggle`, `#undoRedoWrap`, `#layerBtn`)
+  har `flex-shrink:0` — utan det vart 2D|3D-brytaren 2 px brei ved smale vindauge.
+- **Ikkje bygd enno**: 3D-markering/plukking, terrengflate frå koter (TIN),
+  lengdeprofil langs senterlinja (høgd langs vegen), DXF-eksport.
+
+### vercel.json
+Berre `headers` (X-Frame-Options, nosniff). Dei gamle `builds`/`routes` vart
+fjerna — dei sende ALLE stiar til `index.html`, så `manifest.json` og `js/*.js`
+vart aldri servert. Utan `builds` er det null-konfig statisk hosting.
+
+### Neste steg (vegmodul)
+Lengdeprofil/høgd langs senterlinje, terrengflate frå koter, deretter sjølve
+vegklasse-modulen (klassetabell, åtvaringar for radius/stigning/fall,
+tverrprofil) — avhengig av svar på N100-vs-kommunal-spørsmålet over.
+
 ## Mappestruktur / filer
 
 ```
 Riss/
-├── index.html      ← heile appen: HTML + CSS + JS i éin fil (~145 kB)
+├── index.html      ← appen: HTML + CSS + hovudskript (inline, ~3500 linjer)
+├── js/              ← history.js, layers.js, alignment.js, grips.js, view3d.js
 ├── manifest.json    ← PWA-manifest (standalone, landscape, ikon 192/512)
-├── vercel.json      ← statisk deploy, rute alt til index.html, tryggleiksheadere
+├── vercel.json      ← statisk deploy med tryggleiksheadere (ingen ruting)
 ├── icon-192.png
 ├── icon-512.png
 └── deploy.bat        ← git add -A && commit (spør om melding) && push
 ```
 
 Ingen build-steg, ingen `package.json`, ingen `node_modules`. Alt køyrer
-direkte i nettlesaren frå éi fil.
+direkte i nettlesaren frå statiske filer.
 
 ## Teknisk oppbygging (i `index.html`)
 

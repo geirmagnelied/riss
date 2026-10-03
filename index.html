@@ -580,6 +580,7 @@ body.pre-start #topbar, body.pre-start #workspace{display:none}
 <script src="js/layers.js"></script>
 <script src="js/alignment.js"></script>
 <script src="js/grips.js"></script>
+<script src="js/view3d.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════
 //  RISS v2 — vektormotor med CAD-interaksjon
@@ -693,6 +694,7 @@ function render(){
   document.getElementById('elCount').textContent=elements.length+' element';
   renderOverlay();
   histOnRender();
+  v3OnRender();
 }
 
 function gridStepMm(){ const t=28; for(const c of [10,50,100,500,1000,5000,10000]) if(c*view.zoom>=t) return c; return 10000; }
@@ -1781,6 +1783,7 @@ function commitWall(){
     elements.push({
       id:uid(), type:'wall', pts:wallPts.slice(), segs:wallSegs.slice(),
       thickness:wallThickness, material:wallMaterial, refLine:wallRefLine, refOffset:wallOffset,
+      height:wallHeight,
       color:curColor, width:curWidth
     });
   }
@@ -1951,6 +1954,7 @@ function updateProps(){
   document.getElementById('hatchColorRow').style.display=fillSel?'flex':'none';
   document.getElementById('opacityRow').style.display=fillSel?'flex':'none';
   alignUpdateProps();
+  heightUpdateProps();
   if(has){const first=elements.find(el=>selection.has(el.id));if(first){curColor=first.color;if(first.width)curWidth=first.width;syncStyle();
     if(first.type==='fill'){
       document.getElementById('hatchSelect').value=first.hatch||'solid';
@@ -2763,7 +2767,7 @@ async function parseIFC(arrayBuffer){
         const expressID=ids.get(i);
         let flat;
         try{ flat=api.GetFlatMesh(modelID, expressID); }catch(e){ continue; }
-        const pts2d=[];
+        const pts2d=[]; let minH=Infinity, maxH=-Infinity;
         const gCount=flat.geometries.size();
         for(let g=0; g<gCount; g++){
           const placed=flat.geometries.get(g);
@@ -2778,13 +2782,16 @@ async function parseIFC(arrayBuffer){
           for(let v=0; v<vData.length; v+=6){
             const x=vData[v], y=vData[v+1], z=vData[v+2];
             const wx=m[0]*x+m[4]*y+m[8]*z+m[12];
+            const wy=m[1]*x+m[5]*y+m[9]*z+m[13];   // Y = opp (høgd)
             const wz=m[2]*x+m[6]*y+m[10]*z+m[14];
             pts2d.push({x:wx,y:wz});
+            if(wy<minH) minH=wy; if(wy>maxH) maxH=wy;
           }
         }
         if(pts2d.length>=3){
           const hull=convexHull2D(pts2d);
-          if(hull.length>=3) rawOut.push({type:'poly', pts:hull, closed:true, color:IMPORT_COLOR, width:IMPORT_WIDTH});
+          // z/height i mm (fileiningar antekne meter, same antaking som fotavtrykket) — gjer 3D-visinga mogleg
+          if(hull.length>=3) rawOut.push({type:'poly', pts:hull, closed:true, color:IMPORT_COLOR, width:IMPORT_WIDTH, z:minH*1000, height:Math.max(0,(maxH-minH)*1000), ifcType:typeName});
         }
         total++;
       }
@@ -2860,6 +2867,8 @@ function activateNumeric(firstChar){
 window.addEventListener('keydown',e=>{
   if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
   if(numericActive)return;
+  // 3D-vising: berre Ctrl-snarvegar (angre/gjer om) er aktive — teikneverktøy-taster gjer ingenting der
+  if(v3Active()&&!(e.ctrlKey||e.metaKey)) return;
   // numeric entry trigger
   if((stage===1&&p1||dimStage===1&&dimP1)&&/^[0-9]$/.test(e.key)){activateNumeric(e.key);return;}
   // line tool numeric entry (from last polyline point)
@@ -3411,6 +3420,7 @@ function setModule(mod){
   document.getElementById('statusbar').style.display = sketch?'':'none';
   document.getElementById('mapArea').style.display = kart?'flex':'none';
   document.getElementById('mapBottomBar').style.display = kart?'flex':'none';
+  v3OnModule(mod);
   if(sketch) resizeCanvases();
   else if(kart) initMap();
 }
